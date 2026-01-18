@@ -103,6 +103,28 @@ Mn0.846Cu0.154    1777.06     9446.52
 
 ## Running the Demonstration
 
+### Option 1: Google Colab (Recommended - No Setup Required)
+
+🚀 **Easiest way to get started!**
+
+1. **Open the Colab notebook:**
+   - Click here: [Materials Discovery Workshop - Colab Edition](https://colab.research.google.com/github/your-repo/materials-discovery/blob/main/materials_discovery_workshop_colab.ipynb)
+   - Or upload `materials_discovery_workshop_colab.ipynb` to Google Colab
+
+2. **Run all cells:**
+   - Click "Runtime" → "Run all"
+   - The notebook includes automatic dataset generation and dependency installation
+
+3. **Features included:**
+   - ✅ Synthetic materials dataset generation
+   - ✅ Complete VAE training and material generation
+   - ✅ Advanced validation techniques
+   - ✅ Interactive parameter controls
+   - ✅ Comprehensive visualizations
+   - ✅ Production-ready evaluation metrics
+
+### Option 2: Local Installation
+
 1. **Install dependencies:**
 
    ```bash
@@ -120,6 +142,22 @@ Mn0.846Cu0.154    1777.06     9446.52
    ```bash
    python materials_discovery_demo.py
    ```
+
+### Option 3: Jupyter Notebook Locally
+
+1. **Install dependencies:**
+
+   ```bash
+   pip install -r requirements.txt
+   ```
+
+2. **Launch Jupyter:**
+
+   ```bash
+   jupyter notebook materials_discovery_workshop.ipynb
+   ```
+
+**Note:** The local notebook version requires the `materials_dataset.csv` file to be present. Use the Colab version for the complete self-contained experience.
 
 ## Key Insights
 
