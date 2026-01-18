@@ -1,0 +1,66 @@
+THIRD PARTY LICENSES
+====================
+
+This project depends on the following open-source software:
+
+1. PyTorch
+   - License: BSD
+   - URL: https://pytorch.org/
+   - Authors: Meta AI (formerly Facebook AI)
+   - Citation: Paszke, A., et al. (2019). PyTorch: An Imperative Style,
+     High-Performance Deep Learning Library. NeurIPS 2019.
+
+2. Scikit-learn
+   - License: BSD
+   - URL: https://scikit-learn.org/
+   - Authors: Scikit-learn contributors
+   - Citation: Pedregosa, F., et al. (2011). Scikit-learn: Machine Learning
+     in Python. JMLR 12:2825-2830.
+
+3. Pymatgen
+   - License: MIT
+   - URL: https://pymatgen.org/
+   - Authors: Materials Project Team, Lawrence Berkeley National Lab
+   - Citation: Ong et al. (2013). Python Materials Genomics (pymatgen):
+     A robust, open-source python library for materials analysis.
+     Computational Materials Science 68:314-319.
+
+4. Pandas
+   - License: BSD
+   - URL: https://pandas.pydata.org/
+   - Authors: Wes McKinney, Pandas Development Team
+   - Citation: McKinney, W. (2010). Data structures for statistical computing
+     in Python. Proceedings of the 9th Python in Science Conference.
+
+5. NumPy
+   - License: BSD
+   - URL: https://numpy.org/
+   - Authors: NumPy developers
+   - Citation: Harris, C. R., et al. (2020). Array programming with NumPy.
+     Nature 585:357-362.
+
+6. Matplotlib
+   - License: PSF (Python Software Foundation)
+   - URL: https://matplotlib.org/
+   - Authors: John D. Hunter and matplotlib development team
+   - Citation: Hunter, J. D. (2007). Matplotlib: A 2D Graphics Environment.
+     Computing in Science & Engineering 9(3):90-95.
+
+7. Seaborn
+   - License: BSD
+   - URL: https://seaborn.pydata.org/
+   - Authors: Michael Waskom
+
+8. TQDM
+   - License: MPL 2.0, MIT
+   - URL: https://github.com/tqdm/tqdm
+   - Authors: TQDM developers
+
+9. Requests
+   - License: Apache 2.0
+   - URL: https://requests.readthedocs.io/
+   - Authors: Kenneth Reitz and Requests contributors
+
+All licenses are compatible with the MIT license used for this project.
+Complete license texts can be found at:
+https://opensource.org/licenses/MIT

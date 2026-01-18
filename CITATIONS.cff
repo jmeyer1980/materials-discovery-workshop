@@ -1,0 +1,74 @@
+cff-version: 1.2.0
+title: Materials Discovery Machine Learning System
+message: >-
+  If you use this software, please cite it using the metadata from this file.
+type: software
+authors:
+  - given-names: "[Your First Name]"
+    family-names: "[Your Last Name]"
+    affiliation: "[Your Organization]"
+    orcid: "https://orcid.org/[your-orcid]"  # Optional
+repository-code: "https://github.com/[your-username]/materials-discovery-ml"
+url: "https://github.com/[your-username]/materials-discovery-ml"
+abstract: >-
+  A machine learning system for discovering new materials and alloys by learning
+  patterns from existing compositions using Variational Autoencoders (VAE).
+  Demonstrates how generative models can accelerate materials science research.
+keywords:
+  - machine learning
+  - materials science
+  - generative models
+  - variational autoencoder
+  - alloys
+  - discovery
+license: MIT
+version: 1.0.0
+date-released: "2026-01-18"
+
+# References to foundational work
+references:
+  - type: article
+    authors:
+      - family-names: Kingma
+        given-names: Diederik P.
+      - family-names: Welling
+        given-names: Max
+    title: "Auto-Encoding Variational Bayes"
+    journal: "arXiv preprint arXiv:1312.6114"
+    year: 2013
+    notes: "Core VAE methodology used in this project"
+
+  - type: software
+    authors:
+      - family-names: Paszke
+        given-names: Adam
+      - family-names: Gross
+        given-names: Sam
+    title: "PyTorch: An Imperative Style, High-Performance Deep Learning Library"
+    conference-name: "NeurIPS 2019"
+    year: 2019
+
+  - type: article
+    authors:
+      - family-names: Pedregosa
+        given-names: F.
+    title: "Scikit-learn: Machine Learning in Python"
+    journal: "Journal of Machine Learning Research"
+    volume: 12
+    pages: "2825-2830"
+    year: 2011
+
+  - type: article
+    authors:
+      - family-names: Ong
+        given-names: S. P.
+      - family-names: Richards
+        given-names: W. D.
+      - family-names: Jain
+        given-names: A.
+    title: "Python Materials Genomics (pymatgen): A robust, open-source python library for materials analysis"
+    journal: "Computational Materials Science"
+    volume: 68
+    pages: "314-319"
+    year: 2013
+    doi: "10.1016/j.commatsci.2012.10.028"
