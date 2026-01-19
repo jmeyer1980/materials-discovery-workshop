@@ -1257,10 +1257,34 @@ def create_gradio_interface():
             outputs=[summary_output, plot_output, materials_table, priority_table, workflow_table, cba_table, methods_table, reliability_plot, csv_download]
         )
 
+        # Function for lab export with proper data access
+        def prepare_lab_export_from_table(materials_table_data, ml_metrics):
+            """Prepare comprehensive lab export from table data."""
+            if hasattr(materials_table_data, 'data'):
+                df = materials_table_data.data
+            else:
+                df = materials_table_data
+
+            if hasattr(df, 'empty') and df.empty:
+                return None, None
+
+            try:
+                # Import the export function
+                from export_for_lab import export_for_lab
+
+                # Generate both CSV and PDF
+                csv_path, pdf_path = export_for_lab(df, ml_metrics, ".")
+
+                return csv_path, pdf_path
+
+            except Exception as e:
+                print(f"Error in lab export: {e}")
+                return None, None
+
         # Connect lab export button
         export_button.click(
-            fn=lambda: prepare_lab_export(materials_table, ml_metrics),
-            inputs=[],
+            fn=prepare_lab_export_from_table,
+            inputs=[materials_table, ml_metrics],
             outputs=[lab_csv_download, lab_pdf_download]
         )
 
@@ -1414,5 +1438,5 @@ if __name__ == "__main__":
     interface = create_gradio_interface()
     interface.launch(
         server_name="0.0.0.0",
-        server_port=int(os.environ.get("PORT", 7860))
+        server_port=int(os.environ.get("PORT", 8080))
     )
