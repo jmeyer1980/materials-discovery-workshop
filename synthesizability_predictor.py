@@ -901,10 +901,52 @@ def initialize_synthesizability_models(api_key: str = None):
     return ml_classifier, llm_predictor
 
 
+def test_composition_constraints():
+    """Test that generated materials have valid composition constraints."""
+    print("Testing composition constraints...")
+
+    # Test synthetic dataset generation
+    test_dataset = create_synthetic_dataset_fallback(100)
+
+    # Check that all compositions are within 5-95% range for binary alloys
+    binary_mask = test_dataset['alloy_type'] == 'binary'
+    binary_data = test_dataset[binary_mask]
+
+    if len(binary_data) > 0:
+        # Check composition ranges
+        comp1_valid = (binary_data['composition_1'] >= 0.05) & (binary_data['composition_1'] <= 0.95)
+        comp2_valid = (binary_data['composition_2'] >= 0.05) & (binary_data['composition_2'] <= 0.95)
+
+        # Check that compositions sum to 1.0 within tolerance
+        composition_sum = binary_data['composition_1'] + binary_data['composition_2']
+        sum_valid = np.abs(composition_sum - 1.0) < 1e-6
+
+        print(f"Binary alloys tested: {len(binary_data)}")
+        print(f"Composition_1 in 5-95% range: {comp1_valid.all()} ({comp1_valid.sum()}/{len(comp1_valid)})")
+        print(f"Composition_2 in 5-95% range: {comp2_valid.all()} ({comp2_valid.sum()}/{len(comp2_valid)})")
+        print(f"Compositions sum to 1.0 ± 1e-6: {sum_valid.all()} ({sum_valid.sum()}/{len(sum_valid)})")
+
+        # Assert all constraints are met
+        assert comp1_valid.all(), "Some composition_1 values are outside 5-95% range"
+        assert comp2_valid.all(), "Some composition_2 values are outside 5-95% range"
+        assert sum_valid.all(), "Some composition sums are not equal to 1.0 within tolerance"
+
+    print("✅ All composition constraints validated successfully!")
+    return True
+
+
 if __name__ == "__main__":
     # Test the synthesizability prediction system
     print("Testing Synthesizability Prediction System")
     print("=" * 50)
+
+    # Run composition constraint tests
+    try:
+        test_composition_constraints()
+        print()
+    except Exception as e:
+        print(f"❌ Composition constraint test failed: {e}")
+        print()
 
     # Initialize models
     ml_model, llm_model = initialize_synthesizability_models()
