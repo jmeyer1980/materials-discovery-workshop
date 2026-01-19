@@ -1251,11 +1251,11 @@ def create_gradio_interface():
             # Return all original results plus CSV path
             return results + (csv_path,)
 
-        # Update the button to use the new function and store ML metrics
+        # Simplified generation - update all components directly
         generate_btn.click(
-            fn=lambda *args: generate_with_csv(*args) + (ml_metrics,),
+            fn=generate_with_csv,
             inputs=[latent_dim, epochs, num_samples, available_equipment],
-            outputs=[summary_output, plot_output, materials_table, priority_table, workflow_table, cba_table, methods_table, reliability_plot, csv_download, ml_metrics_state]
+            outputs=[summary_output, plot_output, materials_table, priority_table, workflow_table, cba_table, methods_table, reliability_plot, csv_download]
         )
 
         # Function for lab export with proper data access
