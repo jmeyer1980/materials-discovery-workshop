@@ -21,6 +21,14 @@ import warnings
 import os
 warnings.filterwarnings('ignore')
 
+# Try to import pymatgen for atomic weight calculations
+try:
+    from pymatgen.core import Composition
+    PYMATGEN_AVAILABLE = True
+except ImportError:
+    PYMATGEN_AVAILABLE = False
+    print("Warning: pymatgen not available, using fallback atomic weights")
+
 # Try to import Materials Project API functions
 try:
     from materials_discovery_api import get_training_dataset, MaterialsProjectClient
@@ -235,6 +243,156 @@ EQUIPMENT_CATEGORIES = {
     "Advanced Equipment": ["Vacuum Arc Melter", "Plasma Arc Furnace", "Vacuum Chamber"],
     "Specialized Equipment": ["CVD Reactor", "Gas Handling System", "Controlled Atmosphere"]
 }
+
+# Fallback atomic weights for elements (in case pymatgen is not available)
+FALLBACK_ATOMIC_WEIGHTS = {
+    'H': 1.008, 'He': 4.003, 'Li': 6.941, 'Be': 9.012, 'B': 10.811, 'C': 12.011,
+    'N': 14.007, 'O': 15.999, 'F': 18.998, 'Ne': 20.180, 'Na': 22.990, 'Mg': 24.305,
+    'Al': 26.982, 'Si': 28.086, 'P': 30.974, 'S': 32.065, 'Cl': 35.453, 'Ar': 39.948,
+    'K': 39.098, 'Ca': 40.078, 'Sc': 44.956, 'Ti': 47.867, 'V': 50.942, 'Cr': 51.996,
+    'Mn': 54.938, 'Fe': 55.845, 'Co': 58.933, 'Ni': 58.693, 'Cu': 63.546, 'Zn': 65.409,
+    'Ga': 69.723, 'Ge': 72.640, 'As': 74.922, 'Se': 78.960, 'Br': 79.904, 'Kr': 83.798,
+    'Rb': 85.468, 'Sr': 87.620, 'Y': 88.906, 'Zr': 91.224, 'Nb': 92.906, 'Mo': 95.940,
+    'Tc': 98.000, 'Ru': 101.070, 'Rh': 102.906, 'Pd': 106.420, 'Ag': 107.868, 'Cd': 112.411,
+    'In': 114.818, 'Sn': 118.710, 'Sb': 121.760, 'Te': 127.600, 'I': 126.904, 'Xe': 131.293,
+    'Cs': 132.905, 'Ba': 137.327, 'La': 138.906, 'Ce': 140.116, 'Pr': 140.908, 'Nd': 144.240,
+    'Pm': 145.000, 'Sm': 150.360, 'Eu': 151.964, 'Gd': 157.250, 'Tb': 158.925, 'Dy': 162.500,
+    'Ho': 164.930, 'Er': 167.259, 'Tm': 168.934, 'Yb': 173.040, 'Lu': 174.967, 'Hf': 178.490,
+    'Ta': 180.948, 'W': 183.840, 'Re': 186.207, 'Os': 190.230, 'Ir': 192.217, 'Pt': 195.078,
+    'Au': 196.967, 'Hg': 200.590, 'Tl': 204.383, 'Pb': 207.200, 'Bi': 208.980, 'Po': 210.000,
+    'At': 210.000, 'Rn': 222.000, 'Fr': 223.000, 'Ra': 226.000, 'Ac': 227.000, 'Th': 232.038,
+    'Pa': 231.036, 'U': 238.029, 'Np': 237.000, 'Pu': 244.000, 'Am': 243.000, 'Cm': 247.000,
+    'Bk': 247.000, 'Cf': 251.000, 'Es': 252.000, 'Fm': 257.000, 'Md': 258.000, 'No': 259.000,
+    'Lr': 262.000, 'Rf': 261.000, 'Db': 262.000, 'Sg': 266.000, 'Bh': 264.000, 'Hs': 269.000,
+    'Mt': 268.000, 'Ds': 271.000, 'Rg': 272.000, 'Cn': 285.000, 'Nh': 284.000, 'Fl': 289.000,
+    'Mc': 288.000, 'Lv': 292.000, 'Ts': 294.000, 'Og': 294.000
+}
+
+
+def get_atomic_weight(element: str) -> float:
+    """
+    Get atomic weight for an element using pymatgen or fallback values.
+
+    Args:
+        element: Element symbol (e.g., 'Al', 'Ti')
+
+    Returns:
+        Atomic weight in g/mol
+    """
+    if PYMATGEN_AVAILABLE:
+        try:
+            comp = Composition({element: 1})
+            return comp.weight
+        except Exception as e:
+            print(f"Warning: pymatgen failed for {element}, using fallback: {e}")
+            return FALLBACK_ATOMIC_WEIGHTS.get(element, 1.0)
+    else:
+        return FALLBACK_ATOMIC_WEIGHTS.get(element, 1.0)
+
+
+def calculate_weight_percentages(material_data: Dict) -> Dict:
+    """
+    Calculate weight percentages and feedstock masses for a 100g batch.
+
+    Args:
+        material_data: Dict containing material composition with keys:
+            - element_1, element_2, element_3: Element symbols
+            - composition_1, composition_2, composition_3: Atomic percentages (0-1)
+
+    Returns:
+        Dict with weight percentages and feedstock masses
+    """
+    elements = []
+    compositions = []
+
+    # Extract elements and compositions
+    for i in [1, 2, 3]:
+        elem_key = f'element_{i}'
+        comp_key = f'composition_{i}'
+
+        elem = material_data.get(elem_key)
+        comp = material_data.get(comp_key, 0.0)
+
+        if elem and comp > 0:
+            elements.append(elem)
+            compositions.append(comp)
+
+    if not elements:
+        return {
+            'wt%': {},
+            'feedstock_g_per_100g': 'No elements found',
+            'total_weight_percent': 0.0
+        }
+
+    # Calculate atomic weights
+    atomic_weights = [get_atomic_weight(elem) for elem in elements]
+
+    # Calculate weight percentages
+    # wt% = (at% * atomic_weight) / sum(at% * atomic_weight) * 100
+    weight_fractions = [comp * aw for comp, aw in zip(compositions, atomic_weights)]
+    total_weight = sum(weight_fractions)
+
+    weight_percentages = {}
+    feedstock_parts = []
+
+    for elem, wt_frac in zip(elements, weight_fractions):
+        wt_pct = (wt_frac / total_weight) * 100
+        weight_percentages[elem] = wt_pct
+
+        # Calculate mass for 100g batch
+        mass_g = wt_pct  # wt% is already in % so 51% = 51g for 100g batch
+        feedstock_parts.append(f"{mass_g:.1f}g {elem}")
+
+    feedstock_string = ", ".join(feedstock_parts)
+
+    # Verify total weight percent sums to 100%
+    total_wt_pct = sum(weight_percentages.values())
+    weight_percentages['total'] = total_wt_pct
+
+    return {
+        'wt%': weight_percentages,
+        'feedstock_g_per_100g': feedstock_string,
+        'total_weight_percent': total_wt_pct
+    }
+
+
+def add_composition_analysis_to_dataframe(materials_df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Add weight percentage and feedstock mass calculations to a materials DataFrame.
+
+    Args:
+        materials_df: DataFrame with material compositions
+
+    Returns:
+        DataFrame with additional columns: wt%, feedstock_g_per_100g
+    """
+    results_df = materials_df.copy()
+
+    # Initialize new columns
+    results_df['wt%'] = None
+    results_df['feedstock_g_per_100g'] = None
+
+    for idx, row in results_df.iterrows():
+        try:
+            composition_analysis = calculate_weight_percentages(row.to_dict())
+
+            # Store weight percentages as formatted string
+            wt_pct_parts = []
+            for elem in ['element_1', 'element_2', 'element_3']:
+                elem_name = row.get(elem)
+                if elem_name and elem_name in composition_analysis['wt%']:
+                    wt_pct = composition_analysis['wt%'][elem_name]
+                    wt_pct_parts.append(f"{elem_name}: {wt_pct:.1f}%")
+
+            results_df.at[idx, 'wt%'] = "; ".join(wt_pct_parts)
+            results_df.at[idx, 'feedstock_g_per_100g'] = composition_analysis['feedstock_g_per_100g']
+
+        except Exception as e:
+            print(f"Warning: Failed to calculate composition for material {idx}: {e}")
+            results_df.at[idx, 'wt%'] = 'Calculation failed'
+            results_df.at[idx, 'feedstock_g_per_100g'] = 'Calculation failed'
+
+    return results_df
 
 
 def classify_stability_category(energy_above_hull: float) -> str:
