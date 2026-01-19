@@ -46,93 +46,100 @@ class SynthesizabilityClassifier:
         ]
         self.is_trained = False
 
-    def prepare_training_data(self) -> Tuple[pd.DataFrame, pd.Series]:
-        """Prepare training data from ICSD and MP-only materials."""
-        # Mock data generation (same as notebook)
-        np.random.seed(42)
+    def prepare_training_data(self, api_key: str = None) -> Tuple[pd.DataFrame, pd.Series]:
+        """Prepare training data from real Materials Project data or fallback to synthetic."""
+        # Try to import and use real MP data
+        try:
+            from synthesizability_predictor import create_training_dataset_from_mp
+            training_data = create_training_dataset_from_mp(api_key=api_key, n_materials=1000)
+        except ImportError:
+            # Fallback to synthetic data if import fails
+            print("Warning: Using synthetic training data")
+            # Mock data generation (same as before)
+            np.random.seed(42)
 
-        # ICSD data
-        icsd_data = []
-        for i in range(1500):
-            formation_energy = np.random.normal(-2.0, 1.5)
-            formation_energy = np.clip(formation_energy, -8, 2)
+            # ICSD data
+            icsd_data = []
+            for i in range(1500):
+                formation_energy = np.random.normal(-2.0, 1.5)
+                formation_energy = np.clip(formation_energy, -8, 2)
 
-            band_gap = np.random.exponential(1.0)
-            band_gap = np.clip(band_gap, 0, 8)
+                band_gap = np.random.exponential(1.0)
+                band_gap = np.clip(band_gap, 0, 8)
 
-            energy_above_hull = np.random.exponential(0.05)
-            energy_above_hull = np.clip(energy_above_hull, 0, 0.5)
+                energy_above_hull = np.random.exponential(0.05)
+                energy_above_hull = np.clip(energy_above_hull, 0, 0.5)
 
-            electronegativity = np.random.normal(1.8, 0.5)
-            electronegativity = np.clip(electronegativity, 0.7, 2.5)
+                electronegativity = np.random.normal(1.8, 0.5)
+                electronegativity = np.clip(electronegativity, 0.7, 2.5)
 
-            atomic_radius = np.random.normal(1.4, 0.3)
-            atomic_radius = np.clip(atomic_radius, 0.8, 2.2)
+                atomic_radius = np.random.normal(1.4, 0.3)
+                atomic_radius = np.clip(atomic_radius, 0.8, 2.2)
 
-            nsites = np.random.randint(1, 20)
-            density = np.random.normal(6.0, 3.0)
-            density = np.clip(density, 2, 25)
+                nsites = np.random.randint(1, 20)
+                density = np.random.normal(6.0, 3.0)
+                density = np.clip(density, 2, 25)
 
-            icsd_data.append({
-                'formation_energy_per_atom': formation_energy,
-                'band_gap': band_gap,
-                'energy_above_hull': energy_above_hull,
-                'electronegativity': electronegativity,
-                'atomic_radius': atomic_radius,
-                'nsites': nsites,
-                'density': density,
-                'synthesizable': 1
-            })
+                icsd_data.append({
+                    'formation_energy_per_atom': formation_energy,
+                    'band_gap': band_gap,
+                    'energy_above_hull': energy_above_hull,
+                    'electronegativity': electronegativity,
+                    'atomic_radius': atomic_radius,
+                    'nsites': nsites,
+                    'density': density,
+                    'synthesizable': 1
+                })
 
-        # MP-only data
-        np.random.seed(123)
-        mp_data = []
-        for i in range(1500):
-            formation_energy = np.random.normal(-0.5, 2.0)
-            formation_energy = np.clip(formation_energy, -8, 4)
+            # MP-only data
+            np.random.seed(123)
+            mp_data = []
+            for i in range(1500):
+                formation_energy = np.random.normal(-0.5, 2.0)
+                formation_energy = np.clip(formation_energy, -8, 4)
 
-            band_gap = np.random.exponential(2.0)
-            band_gap = np.clip(band_gap, 0, 12)
+                band_gap = np.random.exponential(2.0)
+                band_gap = np.clip(band_gap, 0, 12)
 
-            energy_above_hull = np.random.exponential(0.2)
-            energy_above_hull = np.clip(energy_above_hull, 0, 1.0)
+                energy_above_hull = np.random.exponential(0.2)
+                energy_above_hull = np.clip(energy_above_hull, 0, 1.0)
 
-            electronegativity = np.random.normal(1.6, 0.8)
-            electronegativity = np.clip(electronegativity, 0.5, 3.0)
+                electronegativity = np.random.normal(1.6, 0.8)
+                electronegativity = np.clip(electronegativity, 0.5, 3.0)
 
-            atomic_radius = np.random.normal(1.5, 0.5)
-            atomic_radius = np.clip(atomic_radius, 0.6, 2.8)
+                atomic_radius = np.random.normal(1.5, 0.5)
+                atomic_radius = np.clip(atomic_radius, 0.6, 2.8)
 
-            nsites = np.random.randint(1, 50)
-            density = np.random.normal(8.0, 4.0)
-            density = np.clip(density, 1, 30)
+                nsites = np.random.randint(1, 50)
+                density = np.random.normal(8.0, 4.0)
+                density = np.clip(density, 1, 30)
 
-            mp_data.append({
-                'formation_energy_per_atom': formation_energy,
-                'band_gap': band_gap,
-                'energy_above_hull': energy_above_hull,
-                'electronegativity': electronegativity,
-                'atomic_radius': atomic_radius,
-                'nsites': nsites,
-                'density': density,
-                'synthesizable': 0
-            })
+                mp_data.append({
+                    'formation_energy_per_atom': formation_energy,
+                    'band_gap': band_gap,
+                    'energy_above_hull': energy_above_hull,
+                    'electronegativity': electronegativity,
+                    'atomic_radius': atomic_radius,
+                    'nsites': nsites,
+                    'density': density,
+                    'synthesizable': 0
+                })
 
-        training_data = pd.concat([pd.DataFrame(icsd_data), pd.DataFrame(mp_data)], ignore_index=True)
-        training_data = training_data.sample(frac=1, random_state=42).reset_index(drop=True)
+            training_data = pd.concat([pd.DataFrame(icsd_data), pd.DataFrame(mp_data)], ignore_index=True)
+            training_data = training_data.sample(frac=1, random_state=42).reset_index(drop=True)
 
         X = training_data[self.feature_columns]
         y = training_data['synthesizable']
 
         return X, y
 
-    def train(self, test_size: float = 0.2):
+    def train(self, test_size: float = 0.2, api_key: str = None):
         """Train the synthesizability classifier."""
         from sklearn.ensemble import RandomForestClassifier
         from sklearn.model_selection import train_test_split, cross_val_score
         from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score
 
-        X, y = self.prepare_training_data()
+        X, y = self.prepare_training_data(api_key=api_key)
 
         X_train, X_test, y_train, y_test = train_test_split(
             X, y, test_size=test_size, random_state=42, stratify=y
@@ -578,13 +585,22 @@ def create_experimental_workflow(materials_df: pd.DataFrame, top_n: int = 10) ->
 def create_gradio_interface():
     """Create the main Gradio interface."""
 
+    # Get API key for Materials Project
+    api_key = os.getenv("MP_API_KEY")
+
     # Initialize models
     ml_classifier = SynthesizabilityClassifier()
-    ml_metrics = ml_classifier.train()
+    ml_metrics = ml_classifier.train(api_key=api_key)
     llm_predictor = LLMSynthesizabilityPredictor()
 
-    # Create synthetic dataset
-    dataset = create_synthetic_dataset(1000)
+    # Create VAE training dataset (real MP data if available, synthetic otherwise)
+    try:
+        from synthesizability_predictor import create_vae_training_dataset_from_mp
+        dataset = create_vae_training_dataset_from_mp(api_key=api_key, n_materials=1000)
+    except ImportError:
+        print("Warning: Using synthetic dataset for VAE training")
+        dataset = create_synthetic_dataset(1000)
+
     feature_cols = ['composition_1', 'composition_2', 'melting_point', 'density', 'electronegativity', 'atomic_radius']
     features = dataset[feature_cols].values
     scaler = StandardScaler()
