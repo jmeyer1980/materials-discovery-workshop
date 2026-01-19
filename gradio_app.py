@@ -21,6 +21,7 @@ from typing import List, Dict, Tuple, Optional
 import time
 import requests
 import os
+from datetime import datetime
 
 warnings.filterwarnings('ignore')
 
@@ -583,6 +584,134 @@ def create_experimental_workflow(materials_df: pd.DataFrame, top_n: int = 10) ->
     ]]
 
 # ============================================================================
+# EXPERIMENTAL OUTCOMES MANAGEMENT
+# ============================================================================
+
+def load_experimental_outcomes() -> pd.DataFrame:
+    """Load experimental outcomes from CSV file."""
+    outcomes_file = 'outcomes.csv'
+    if os.path.exists(outcomes_file):
+        try:
+            df = pd.read_csv(outcomes_file)
+            # Ensure required columns exist
+            required_cols = ['formula', 'attempted_date', 'outcome', 'ml_pred', 'llm_pred', 'e_hull', 'notes']
+            for col in required_cols:
+                if col not in df.columns:
+                    df[col] = None
+            return df
+        except Exception as e:
+            print(f"Error loading outcomes: {e}")
+            return pd.DataFrame(columns=['formula', 'attempted_date', 'outcome', 'ml_pred', 'llm_pred', 'e_hull', 'notes'])
+    else:
+        return pd.DataFrame(columns=['formula', 'attempted_date', 'outcome', 'ml_pred', 'llm_pred', 'e_hull', 'notes'])
+
+def save_experimental_outcome(formula: str, outcome: str, ml_pred: float, llm_pred: float,
+                             e_hull: float, notes: str) -> bool:
+    """Save a new experimental outcome to CSV."""
+    try:
+        outcomes_df = load_experimental_outcomes()
+
+        new_outcome = {
+            'formula': formula,
+            'attempted_date': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+            'outcome': outcome,
+            'ml_pred': ml_pred,
+            'llm_pred': llm_pred,
+            'e_hull': e_hull,
+            'notes': notes
+        }
+
+        # Append new outcome
+        outcomes_df = pd.concat([outcomes_df, pd.DataFrame([new_outcome])], ignore_index=True)
+
+        # Save to CSV
+        outcomes_df.to_csv('outcomes.csv', index=False)
+        return True
+    except Exception as e:
+        print(f"Error saving outcome: {e}")
+        return False
+
+def calculate_validation_metrics(outcomes_df: pd.DataFrame) -> Dict:
+    """Calculate validation metrics from experimental outcomes."""
+    if outcomes_df.empty:
+        return {
+            'total_experiments': 0,
+            'success_rate': 0.0,
+            'hit_rate_last_10': 0.0,
+            'precision': 0.0,
+            'recall': 0.0,
+            'calibration_error': 0.0,
+            'recent_experiments': []
+        }
+
+    # Calculate basic metrics
+    total_experiments = len(outcomes_df)
+    successful_experiments = len(outcomes_df[outcomes_df['outcome'] == 'Successful'])
+    success_rate = successful_experiments / total_experiments if total_experiments > 0 else 0.0
+
+    # Hit rate for last 10 experiments
+    recent_outcomes = outcomes_df.tail(10)
+    recent_successful = len(recent_outcomes[recent_outcomes['outcome'] == 'Successful'])
+    hit_rate_last_10 = recent_successful / len(recent_outcomes) if len(recent_outcomes) > 0 else 0.0
+
+    # Precision and recall (treating "Successful" + "Partial success" as positive predictions)
+    positive_predictions = (outcomes_df['ml_pred'] >= 0.5) | (outcomes_df['llm_pred'] >= 0.5)
+    actual_successes = outcomes_df['outcome'].isin(['Successful', 'Partial success'])
+
+    if positive_predictions.sum() > 0:
+        precision = ((positive_predictions) & (actual_successes)).sum() / positive_predictions.sum()
+    else:
+        precision = 0.0
+
+    if actual_successes.sum() > 0:
+        recall = ((positive_predictions) & (actual_successes)).sum() / actual_successes.sum()
+    else:
+        recall = 0.0
+
+    # Calibration error (mean absolute difference between predicted and actual success rates)
+    outcomes_df_copy = outcomes_df.copy()
+    outcomes_df_copy['actual_success'] = outcomes_df_copy['outcome'].isin(['Successful', 'Partial success']).astype(int)
+    outcomes_df_copy['ensemble_pred'] = (outcomes_df_copy['ml_pred'] * 0.7 + outcomes_df_copy['llm_pred'] * 0.3)
+
+    # Group by prediction bins
+    bins = np.linspace(0, 1, 11)
+    outcomes_df_copy['pred_bin'] = pd.cut(outcomes_df_copy['ensemble_pred'], bins=bins, labels=bins[:-1])
+
+    calibration_errors = []
+    for bin_start in bins[:-1]:
+        bin_data = outcomes_df_copy[outcomes_df_copy['pred_bin'] == bin_start]
+        if len(bin_data) > 0:
+            predicted_rate = bin_data['ensemble_pred'].mean()
+            actual_rate = bin_data['actual_success'].mean()
+            calibration_errors.append(abs(predicted_rate - actual_rate))
+
+    calibration_error = np.mean(calibration_errors) if calibration_errors else 0.0
+
+    return {
+        'total_experiments': total_experiments,
+        'success_rate': success_rate,
+        'hit_rate_last_10': hit_rate_last_10,
+        'precision': precision,
+        'recall': recall,
+        'calibration_error': calibration_error,
+        'recent_experiments': recent_outcomes.to_dict('records')
+    }
+
+def filter_materials_by_outcome_status(materials_df: pd.DataFrame, outcomes_df: pd.DataFrame,
+                                     filter_type: str) -> pd.DataFrame:
+    """Filter materials based on whether they have experimental outcomes logged."""
+    if filter_type == "All Materials":
+        return materials_df
+    elif filter_type == "Has Outcome Logged":
+        logged_formulas = set(outcomes_df['formula'].unique())
+        return materials_df[materials_df['formula'].isin(logged_formulas)]
+    elif filter_type == "No Outcome Logged":
+        logged_formulas = set(outcomes_df['formula'].unique())
+        return materials_df[~materials_df['formula'].isin(logged_formulas)]
+    else:
+        return materials_df
+
+# ============================================================================
 # GRADIO INTERFACE
 # ============================================================================
 
@@ -851,6 +980,17 @@ def create_gradio_interface():
 
             with gr.TabItem("🧪 Generated Materials"):
                 gr.Markdown("### All Generated Materials with Stability & Synthesizability Predictions")
+
+                # Filter controls
+                with gr.Row():
+                    filter_dropdown = gr.Dropdown(
+                        choices=["All Materials", "Has Outcome Logged", "No Outcome Logged"],
+                        value="All Materials",
+                        label="Filter by Experimental Status",
+                        info="Show materials based on whether outcomes have been logged"
+                    )
+                    apply_filter_btn = gr.Button("🔍 Apply Filter", variant="secondary")
+
                 materials_table = gr.DataFrame(
                     headers=["Formula", "Stability Score", "Stability Category", "Synth. Prob.", "Synth. Conf.", "E_hull", "Density", "Melting Point"],
                     label="Generated Materials",
@@ -886,6 +1026,87 @@ def create_gradio_interface():
                     label="Synthesis Methods Reference",
                     wrap=True
                 )
+
+            with gr.TabItem("🧪 Experimental Outcomes"):
+                gr.Markdown("### Log Experimental Synthesis Outcomes")
+                gr.Markdown("""
+                Track the results of your synthesis experiments to validate and improve model predictions.
+                This data helps calibrate the models and identify which predictions are most reliable.
+                """)
+
+                # Load current materials for dropdown
+                current_outcomes_df = load_experimental_outcomes()
+
+                with gr.Row():
+                    with gr.Column():
+                        # Formula selection
+                        formula_dropdown = gr.Dropdown(
+                            choices=[],  # Will be populated after generation
+                            label="Select Material Formula",
+                            info="Choose from generated candidates"
+                        )
+
+                        # Outcome selection
+                        outcome_dropdown = gr.Dropdown(
+                            choices=["Not yet attempted", "Successful", "Partial success", "Failed"],
+                            value="Not yet attempted",
+                            label="Experimental Outcome",
+                            info="Record the result of your synthesis attempt"
+                        )
+
+                        # Notes
+                        notes_textbox = gr.Textbox(
+                            label="Experimental Notes",
+                            placeholder="Describe synthesis conditions, challenges, observations...",
+                            lines=3
+                        )
+
+                        # Log outcome button
+                        log_outcome_btn = gr.Button("📝 Log Outcome", variant="primary")
+
+                    with gr.Column():
+                        gr.Markdown("### Recent Experimental Outcomes")
+                        outcomes_display = gr.DataFrame(
+                            value=current_outcomes_df.tail(10),
+                            headers=["Formula", "Date", "Outcome", "ML Pred", "LLM Pred", "E_hull", "Notes"],
+                            label="Recent Outcomes"
+                        )
+
+                        outcome_status = gr.Markdown("")
+
+            with gr.TabItem("📊 Validation Metrics"):
+                gr.Markdown("### Model Validation & Performance Tracking")
+                gr.Markdown("""
+                **Performance Metrics from Experimental Data:**
+
+                **Hit Rate**: Percentage of successful experiments in recent trials
+                **Precision**: Of materials predicted synthesizable, what fraction actually succeeded
+                **Recall**: Of successful experiments, what fraction were correctly predicted
+                **Calibration**: How well predicted probabilities match actual success rates
+                """)
+
+                # Validation metrics display
+                validation_metrics_display = gr.Markdown("""
+                **Current Metrics:**
+                - Total Experiments: 0
+                - Overall Success Rate: 0.0%
+                - Hit Rate (Last 10): 0.0%
+                - Precision: 0.0%
+                - Recall: 0.0%
+                - Calibration Error: 0.0
+                """)
+
+                # Recent experiments table
+                recent_experiments_table = gr.DataFrame(
+                    headers=["Formula", "Outcome", "Predicted Prob", "Actual Success", "Notes"],
+                    label="Recent Experimental Results"
+                )
+
+                # Calibration plot
+                calibration_plot = gr.Plot(label="Predicted vs Actual Success Rates")
+
+                # Update validation metrics button
+                update_metrics_btn = gr.Button("🔄 Update Validation Metrics")
 
             with gr.TabItem("📈 Model Reliability"):
                 gr.Markdown("### Calibration Metrics & In-Distribution Detection")
@@ -1041,6 +1262,123 @@ def create_gradio_interface():
             fn=lambda: prepare_lab_export(materials_table, ml_metrics),
             inputs=[],
             outputs=[lab_csv_download, lab_pdf_download]
+        )
+
+        # Experimental outcomes functions
+        def update_formula_dropdown(results_df):
+            """Update formula dropdown with generated materials."""
+            if hasattr(results_df, 'data') and results_df.data is not None:
+                formulas = results_df.data['formula'].tolist()
+                return gr.Dropdown(choices=formulas, value=formulas[0] if formulas else None)
+            return gr.Dropdown(choices=[], value=None)
+
+        def log_experimental_outcome(formula, outcome, notes, materials_table):
+            """Log an experimental outcome."""
+            if not formula:
+                return "Please select a material formula.", load_experimental_outcomes().tail(10)
+
+            # Get material data from the table
+            if hasattr(materials_table, 'data') and materials_table.data is not None:
+                material_row = materials_table.data[materials_table.data['formula'] == formula]
+                if not material_row.empty:
+                    ml_pred = material_row['synthesizability_probability'].iloc[0]
+                    llm_pred = material_row['llm_probability'].iloc[0]
+                    e_hull = material_row['energy_above_hull'].iloc[0]
+
+                    success = save_experimental_outcome(formula, outcome, ml_pred, llm_pred, e_hull, notes)
+                    if success:
+                        status_msg = f"✅ Successfully logged outcome for {formula}"
+                    else:
+                        status_msg = f"❌ Failed to log outcome for {formula}"
+                else:
+                    status_msg = f"❌ Material {formula} not found in current results"
+            else:
+                status_msg = "❌ No materials data available"
+
+            return status_msg, load_experimental_outcomes().tail(10)
+
+        def update_validation_metrics():
+            """Update and display validation metrics."""
+            outcomes_df = load_experimental_outcomes()
+            metrics = calculate_validation_metrics(outcomes_df)
+
+            # Create metrics display text
+            metrics_text = f"""
+            **Current Metrics:**
+            - Total Experiments: {metrics['total_experiments']}
+            - Overall Success Rate: {metrics['success_rate']:.1%}
+            - Hit Rate (Last 10): {metrics['hit_rate_last_10']:.1%} ({int(metrics['hit_rate_last_10'] * 10)}/10 successes)
+            - Precision: {metrics['precision']:.3f}
+            - Recall: {metrics['recall']:.3f}
+            - Calibration Error: {metrics['calibration_error']:.3f}
+            """
+
+            # Prepare recent experiments table
+            if metrics['recent_experiments']:
+                recent_df = pd.DataFrame(metrics['recent_experiments'])
+                recent_display = recent_df[['formula', 'outcome', 'ml_pred', 'llm_pred', 'notes']].round(3)
+                recent_display['Predicted Prob'] = (recent_display['ml_pred'] * 0.7 + recent_display['llm_pred'] * 0.3).round(3)
+                recent_display['Actual Success'] = recent_display['outcome'].isin(['Successful', 'Partial success']).astype(int)
+                recent_display = recent_display[['formula', 'outcome', 'Predicted Prob', 'Actual Success', 'notes']]
+                recent_display.columns = ['Formula', 'Outcome', 'Predicted Prob', 'Actual Success', 'Notes']
+            else:
+                recent_display = pd.DataFrame(columns=['Formula', 'Outcome', 'Predicted Prob', 'Actual Success', 'Notes'])
+
+            # Create calibration plot
+            if not outcomes_df.empty:
+                outcomes_df['ensemble_pred'] = (outcomes_df['ml_pred'] * 0.7 + outcomes_df['llm_pred'] * 0.3)
+                outcomes_df['actual_success'] = outcomes_df['outcome'].isin(['Successful', 'Partial success']).astype(int)
+
+                fig, ax = plt.subplots(figsize=(8, 6))
+                ax.scatter(outcomes_df['ensemble_pred'], outcomes_df['actual_success'], alpha=0.6, color='blue')
+                ax.plot([0, 1], [0, 1], 'r--', alpha=0.7, label='Perfect calibration')
+                ax.set_xlabel('Predicted Success Probability')
+                ax.set_ylabel('Actual Success (0/1)')
+                ax.set_title('Calibration: Predicted vs Actual Success')
+                ax.grid(True, alpha=0.3)
+                ax.legend()
+                plt.tight_layout()
+            else:
+                fig, ax = plt.subplots(figsize=(8, 6))
+                ax.text(0.5, 0.5, 'No experimental data available yet', ha='center', va='center', transform=ax.transAxes)
+                ax.set_title('Calibration Plot')
+                plt.tight_layout()
+
+            return metrics_text, recent_display, fig
+
+        # Experimental outcomes functions
+        def apply_materials_filter(filter_type, materials_table):
+            """Apply filtering to materials table based on experimental outcomes."""
+            if hasattr(materials_table, 'data') and materials_table.data is not None:
+                outcomes_df = load_experimental_outcomes()
+                filtered_df = filter_materials_by_outcome_status(materials_table.data, outcomes_df, filter_type)
+                return filtered_df
+            return materials_table.data if hasattr(materials_table, 'data') else pd.DataFrame()
+
+        # Connect experimental outcomes
+        generate_btn.click(
+            fn=update_formula_dropdown,
+            inputs=[materials_table],
+            outputs=[formula_dropdown]
+        )
+
+        log_outcome_btn.click(
+            fn=log_experimental_outcome,
+            inputs=[formula_dropdown, outcome_dropdown, notes_textbox, materials_table],
+            outputs=[outcome_status, outcomes_display]
+        )
+
+        update_metrics_btn.click(
+            fn=update_validation_metrics,
+            inputs=[],
+            outputs=[validation_metrics_display, recent_experiments_table, calibration_plot]
+        )
+
+        # Connect filtering
+        apply_filter_btn.click(
+            fn=apply_materials_filter,
+            inputs=[filter_dropdown, materials_table],
+            outputs=[materials_table]
         )
 
         gr.Markdown("""
