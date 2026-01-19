@@ -933,6 +933,16 @@ def create_gradio_interface():
 
                 csv_download = gr.File(label="Download Materials CSV")
 
+                gr.Markdown("### Lab-Ready Export")
+                gr.Markdown("""
+                Generate comprehensive lab-ready export with CSV data and PDF report.
+                Includes all synthesis information, cost-benefit analysis, and model documentation.
+                """)
+
+                export_button = gr.Button("🚀 Export for Synthesis", variant="primary", size="lg")
+                lab_csv_download = gr.File(label="Download Lab CSV")
+                lab_pdf_download = gr.File(label="Download PDF Report")
+
         # Function to prepare CSV export
         def prepare_csv_export(results_df):
             """Prepare CSV data for download with all required columns."""
@@ -979,6 +989,31 @@ def create_gradio_interface():
 
             return temp_file.name
 
+        # Function for lab-ready export
+        def prepare_lab_export(results_df, ml_metrics):
+            """Prepare comprehensive lab export with CSV and PDF."""
+            if results_df.empty:
+                return None, None
+
+            try:
+                # Extract the actual DataFrame from Gradio's DataFrame component
+                if hasattr(results_df, 'data'):
+                    df = results_df.data
+                else:
+                    df = results_df
+
+                # Import the export function
+                from export_for_lab import export_for_lab
+
+                # Generate both CSV and PDF
+                csv_path, pdf_path = export_for_lab(df, ml_metrics, ".")
+
+                return csv_path, pdf_path
+
+            except Exception as e:
+                print(f"Error in lab export: {e}")
+                return None, None
+
         # Connect CSV export to generation function
         def generate_with_csv(latent_dim, epochs, num_samples, available_equipment):
             """Generate materials and prepare CSV export."""
@@ -999,6 +1034,13 @@ def create_gradio_interface():
             fn=generate_with_csv,
             inputs=[latent_dim, epochs, num_samples, available_equipment],
             outputs=[summary_output, plot_output, materials_table, priority_table, workflow_table, cba_table, methods_table, reliability_plot, csv_download]
+        )
+
+        # Connect lab export button
+        export_button.click(
+            fn=lambda: prepare_lab_export(materials_table, ml_metrics),
+            inputs=[],
+            outputs=[lab_csv_download, lab_pdf_download]
         )
 
         gr.Markdown("""
