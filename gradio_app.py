@@ -20,6 +20,7 @@ import warnings
 from typing import List, Dict, Tuple, Optional
 import time
 import requests
+import os
 
 warnings.filterwarnings('ignore')
 
@@ -805,5 +806,5 @@ if __name__ == "__main__":
     interface = create_gradio_interface()
     interface.launch(
         server_name="0.0.0.0",
-        server_port=7860
+        server_port=int(os.environ.get("PORT", 7860))
     )
