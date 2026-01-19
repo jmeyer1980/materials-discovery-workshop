@@ -540,50 +540,28 @@ def calculate_synthesis_priority(materials_df: pd.DataFrame) -> pd.DataFrame:
 
     return results_df
 
-def cost_benefit_analysis(material_data: Dict) -> Dict:
-    """Perform cost-benefit analysis for material synthesis."""
-    base_costs = {
-        'solid_state': {'equipment': 500, 'materials': 200, 'time': 48, 'labor': 400},
-        'arc_melting': {'equipment': 200, 'materials': 150, 'time': 8, 'labor': 150},
-        'cvd': {'equipment': 2000, 'materials': 500, 'time': 72, 'labor': 800}
-    }
+def get_synthesis_methods_reference() -> pd.DataFrame:
+    """Get a reference table of all available synthesis methods."""
+    from synthesizability_predictor import SYNTHESIS_METHODS
 
-    stability = 1 - material_data.get('energy_above_hull', 0) / 0.5
-    stability = np.clip(stability, 0, 1)
-    synthesizability = material_data.get('ensemble_probability', 0.5)
+    methods_data = []
+    for method_key, method_info in SYNTHESIS_METHODS.items():
+        methods_data.append({
+            'Method': method_info['name'],
+            'Description': method_info['description'],
+            'Temperature Range': f"{method_info['temperature_range']['typical']}°C ({method_info['temperature_range']['min']}-{method_info['temperature_range']['max']}°C)",
+            'Atmosphere': method_info['atmosphere'],
+            'Equipment Needed': ', '.join(method_info['equipment_needed']),
+            'Total Time (hours)': (method_info['prep_time_hours'] +
+                                 method_info['synthesis_time_hours'] +
+                                 method_info['cooling_time_hours']),
+            'Cost (USD)': method_info['estimated_cost_usd'],
+            'Success Rate': f"{method_info['success_probability']:.1%}",
+            'Best For': ', '.join(method_info['best_for'][:2]),  # Show first 2 applications
+            'Reference': method_info['reference']
+        })
 
-    if material_data.get('band_gap', 0) < 2.0:
-        method = 'arc_melting'
-        success_prob = min(0.9, stability * synthesizability * 1.2)
-    elif stability > 0.7:
-        method = 'solid_state'
-        success_prob = min(0.8, stability * synthesizability * 1.1)
-    else:
-        method = 'cvd'
-        success_prob = min(0.6, stability * synthesizability)
-
-    costs = base_costs[method]
-    expected_cost = sum(costs.values()) / success_prob
-
-    if material_data.get('band_gap', 0) > 1.5:
-        value = 10000 * stability * synthesizability
-    elif material_data.get('total_magnetization', 0) > 0.1:
-        value = 8000 * stability * synthesizability
-    else:
-        value = 5000 * stability * synthesizability
-
-    expected_value = value * success_prob
-    net_benefit = expected_value - expected_cost
-
-    return {
-        'recommended_method': method,
-        'success_probability': success_prob,
-        'total_cost': sum(costs.values()),
-        'expected_cost': expected_cost,
-        'expected_value': expected_value,
-        'net_benefit': net_benefit,
-        'benefit_cost_ratio': expected_value / expected_cost if expected_cost > 0 else 0
-    }
+    return pd.DataFrame(methods_data)
 
 def create_experimental_workflow(materials_df: pd.DataFrame, top_n: int = 10) -> pd.DataFrame:
     """Create prioritized experimental validation workflow."""
@@ -632,7 +610,10 @@ def create_gradio_interface():
     scaler = StandardScaler()
     features_scaled = scaler.fit_transform(features)
 
-    def generate_and_analyze(latent_dim, epochs, num_samples):
+    # Initialize synthesis methods reference table
+    methods_ref_df = get_synthesis_methods_reference()
+
+    def generate_and_analyze(latent_dim, epochs, num_samples, available_equipment):
         """Main function to generate materials and run analysis."""
         try:
             # Train VAE
@@ -650,13 +631,25 @@ def create_gradio_interface():
             # Create experimental workflow
             workflow_df = create_experimental_workflow(results_df, top_n=10)
 
-            # Cost-benefit analysis for top 5
+            # Cost-benefit analysis for top 5 using selected equipment
+
             top_5_materials = priority_df.head(5)
             cba_results = []
             for _, material in top_5_materials.iterrows():
-                cba = cost_benefit_analysis(material.to_dict())
-                cba['formula'] = material['formula']
-                cba_results.append(cba)
+                try:
+                    from synthesizability_predictor import cost_benefit_analysis
+                    cba = cost_benefit_analysis(material.to_dict(), available_equipment)
+                    cba['formula'] = material['formula']
+                    cba_results.append(cba)
+                except ImportError:
+                    # Fallback to basic cost-benefit if import fails
+                    cba_results.append({
+                        'formula': material['formula'],
+                        'recommended_method': 'Unknown',
+                        'success_probability': material.get('ensemble_probability', 0.5),
+                        'net_benefit': 0,
+                        'benefit_cost_ratio': 0
+                    })
             cba_df = pd.DataFrame(cba_results)
 
             # Create summary statistics
@@ -751,11 +744,11 @@ def create_gradio_interface():
             cba_display = cba_df[['formula', 'recommended_method', 'success_probability',
                                 'net_benefit', 'benefit_cost_ratio']].round(3)
 
-            return summary_text, fig, styled_results, priority_table, workflow_table, cba_display
+            return summary_text, fig, styled_results, priority_table, workflow_table, cba_display, methods_ref_df
 
         except Exception as e:
             error_msg = f"Error during generation: {str(e)}"
-            return error_msg, None, pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
+            return error_msg, None, pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
 
     # Create Gradio interface
     with gr.Blocks(title="Materials Discovery Workshop") as interface:
@@ -785,6 +778,19 @@ def create_gradio_interface():
                     minimum=10, maximum=500, value=100, step=10,
                     label="Materials to Generate",
                     info="Number of new materials to create"
+                )
+
+                gr.Markdown("### Available Equipment")
+                from synthesizability_predictor import EQUIPMENT_CATEGORIES
+                all_equipment = []
+                for category_equipment in EQUIPMENT_CATEGORIES.values():
+                    all_equipment.extend(category_equipment)
+
+                available_equipment = gr.CheckboxGroup(
+                    choices=all_equipment,
+                    value=all_equipment,  # Default to all equipment available
+                    label="Select Available Equipment",
+                    info="Filter synthesis recommendations based on your lab equipment"
                 )
 
                 generate_btn = gr.Button("🚀 Generate Materials", variant="primary", size="lg")
@@ -828,6 +834,15 @@ def create_gradio_interface():
                     label="Cost-Benefit Analysis"
                 )
 
+            with gr.TabItem("🔬 Synthesis Methods"):
+                gr.Markdown("### Complete Reference Guide for Synthesis Methods")
+                methods_table = gr.DataFrame(
+                    value=methods_ref_df,
+                    headers=["Method", "Description", "Temperature Range", "Atmosphere", "Equipment Needed", "Total Time (hours)", "Cost (USD)", "Success Rate", "Best For", "Reference"],
+                    label="Synthesis Methods Reference",
+                    wrap=True
+                )
+
         gr.Markdown("""
         ### How it Works
         1. **VAE Training**: A Variational Autoencoder learns patterns from existing materials data
@@ -854,8 +869,8 @@ def create_gradio_interface():
         # Connect the interface
         generate_btn.click(
             fn=generate_and_analyze,
-            inputs=[latent_dim, epochs, num_samples],
-            outputs=[summary_output, plot_output, materials_table, priority_table, workflow_table, cba_table]
+            inputs=[latent_dim, epochs, num_samples, available_equipment],
+            outputs=[summary_output, plot_output, materials_table, priority_table, workflow_table, cba_table, methods_table]
         )
 
     return interface
