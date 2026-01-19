@@ -871,9 +871,7 @@ def create_gradio_interface():
                     return 'background-color: lightcoral'
                 return ''
 
-            # Style the results table with color coding
-            styled_results = results_table.style.applymap(color_stability, subset=['thermodynamic_stability_category'])
-
+            # Return regular DataFrame for Gradio (styling is handled in the UI)
             priority_cols = ['formula', 'synthesis_priority_score', 'synthesis_priority_rank',
                            'thermodynamic_stability_score', 'ensemble_probability', 'energy_above_hull', 'density']
             priority_table = priority_df[priority_cols].round(3).head(20)
@@ -920,7 +918,7 @@ def create_gradio_interface():
 
             plt.tight_layout()
 
-            return summary_text, fig, styled_results, priority_table, workflow_table, cba_display, methods_ref_df, fig2
+            return summary_text, fig, results_table, priority_table, workflow_table, cba_display, methods_ref_df, fig2
 
         except Exception as e:
             error_msg = f"Error during generation: {str(e)}"
