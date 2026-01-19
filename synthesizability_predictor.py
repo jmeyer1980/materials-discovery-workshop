@@ -97,6 +97,67 @@ def get_stability_info(energy_above_hull: float) -> Dict:
     }
 
 
+def calculate_thermodynamic_stability_score(material_properties: Dict) -> Dict:
+    """
+    Calculate a separate thermodynamic stability score based on energy above hull,
+    formation energy, and other thermodynamic properties.
+
+    This is distinct from experimental synthesizability - thermodynamic stability
+    refers to chemical/phase stability, while synthesizability refers to experimental feasibility.
+
+    Args:
+        material_properties: Dict containing material properties including:
+            - energy_above_hull: Energy above convex hull in eV/atom
+            - formation_energy_per_atom: Formation energy in eV/atom
+            - density: Material density in g/cm³
+            - band_gap: Electronic band gap in eV
+
+    Returns:
+        Dict with thermodynamic stability score and category
+    """
+    energy_above_hull = material_properties.get('energy_above_hull', 0.1)
+    formation_energy = material_properties.get('formation_energy_per_atom', 0)
+    density = material_properties.get('density', 5.0)
+    band_gap = material_properties.get('band_gap', 1.0)
+
+    # Base score from energy above hull (primary stability indicator)
+    if energy_above_hull <= STABILITY_THRESHOLDS["highly_stable"]["energy_above_hull_max"]:
+        stability_score = 0.9  # Highly stable
+        category = "highly_stable"
+        color = "green"
+    elif energy_above_hull <= STABILITY_THRESHOLDS["marginal"]["energy_above_hull_max"]:
+        stability_score = 0.6  # Marginally stable
+        category = "marginal"
+        color = "yellow"
+    else:
+        stability_score = 0.2  # Unstable
+        category = "unstable"
+        color = "red"
+
+    # Adjust score based on formation energy (should be reasonable, not extreme)
+    if formation_energy < -10 or formation_energy > 2:
+        stability_score *= 0.8  # Penalize extreme formation energies
+
+    # Adjust score based on density (unreasonable densities indicate unstable structures)
+    if density < 1 or density > 30:
+        stability_score *= 0.7  # Penalize unreasonable densities
+
+    # Slightly boost score for semiconductors (tend to be more stable)
+    if 0.5 <= band_gap <= 4.0:
+        stability_score *= 1.1
+        stability_score = min(stability_score, 1.0)  # Cap at 1.0
+
+    return {
+        "thermodynamic_stability_score": stability_score,
+        "thermodynamic_stability_category": category,
+        "stability_color": color,
+        "energy_above_hull": energy_above_hull,
+        "formation_energy_per_atom": formation_energy,
+        "density": density,
+        "band_gap": band_gap
+    }
+
+
 def create_synthetic_dataset_fallback(n_samples: int = 1000) -> pd.DataFrame:
     """Create synthetic materials dataset for demonstration (fallback when import fails)."""
     np.random.seed(42)
