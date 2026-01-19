@@ -37,6 +37,66 @@ except ImportError:
     SYNTHETIC_DATASET_AVAILABLE = False
 
 
+# Standardized stability thresholds based on materials science literature
+STABILITY_THRESHOLDS = {
+    "highly_stable": {
+        "energy_above_hull_max": 0.025,  # eV/atom
+        "description": "Highly stable - experimentally likely",
+        "synthesis_confidence": 0.9
+    },
+    "marginal": {
+        "energy_above_hull_max": 0.1,   # eV/atom
+        "description": "Marginally stable - possible with care",
+        "synthesis_confidence": 0.6
+    },
+    "risky": {
+        "energy_above_hull_max": float('inf'),  # Any value above marginal
+        "description": "Unstable - high risk, not recommended",
+        "synthesis_confidence": 0.2
+    }
+}
+
+
+def classify_stability_category(energy_above_hull: float) -> str:
+    """
+    Classify material stability based on energy above hull using literature thresholds.
+
+    Args:
+        energy_above_hull: Energy above convex hull in eV/atom
+
+    Returns:
+        Stability category: 'highly_stable', 'marginal', or 'risky'
+    """
+    if energy_above_hull <= STABILITY_THRESHOLDS["highly_stable"]["energy_above_hull_max"]:
+        return "highly_stable"
+    elif energy_above_hull <= STABILITY_THRESHOLDS["marginal"]["energy_above_hull_max"]:
+        return "marginal"
+    else:
+        return "risky"
+
+
+def get_stability_info(energy_above_hull: float) -> Dict:
+    """
+    Get detailed stability information for a given energy above hull value.
+
+    Args:
+        energy_above_hull: Energy above convex hull in eV/atom
+
+    Returns:
+        Dict with category, description, and synthesis confidence
+    """
+    category = classify_stability_category(energy_above_hull)
+    threshold_info = STABILITY_THRESHOLDS[category]
+
+    return {
+        "category": category,
+        "description": threshold_info["description"],
+        "synthesis_confidence": threshold_info["synthesis_confidence"],
+        "energy_above_hull": energy_above_hull,
+        "threshold_used": threshold_info["energy_above_hull_max"]
+    }
+
+
 def create_synthetic_dataset_fallback(n_samples: int = 1000) -> pd.DataFrame:
     """Create synthetic materials dataset for demonstration (fallback when import fails)."""
     np.random.seed(42)
