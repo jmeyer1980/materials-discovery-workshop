@@ -56,6 +56,186 @@ STABILITY_THRESHOLDS = {
     }
 }
 
+# Synthesis methods configuration with process-aware parameters
+SYNTHESIS_METHODS = {
+    "arc_melting": {
+        "name": "Arc Melting",
+        "description": "High-temperature melting using electric arc for metallic alloys",
+        "temperature_range": {
+            "min": 1500,
+            "max": 3000,
+            "typical": 2200,
+            "unit": "°C"
+        },
+        "atmosphere": "Ar",
+        "equipment_needed": ["Arc Melter"],
+        "prep_time_hours": 2,
+        "synthesis_time_hours": 0.75,  # 45 minutes
+        "cooling_time_hours": 1,
+        "success_probability": 0.85,
+        "estimated_cost_usd": 150,
+        "precursors": ["Pure elements", "Master alloy"],
+        "best_for": ["Conductive metals", "High-melting alloys", "Simple binary/ternary systems"],
+        "limitations": ["Requires conductive samples", "Limited to metallic systems"],
+        "reference": "Standard metallurgical practice for alloy synthesis"
+    },
+    "induction_melting": {
+        "name": "Induction Melting",
+        "description": "Electromagnetic induction heating for rapid melting",
+        "temperature_range": {
+            "min": 800,
+            "max": 2000,
+            "typical": 1600,
+            "unit": "°C"
+        },
+        "atmosphere": "Ar",
+        "equipment_needed": ["Induction Furnace"],
+        "prep_time_hours": 1.5,
+        "synthesis_time_hours": 1.0,
+        "cooling_time_hours": 2,
+        "success_probability": 0.80,
+        "estimated_cost_usd": 200,
+        "precursors": ["Elemental powders", "Pre-alloyed ingots"],
+        "best_for": ["Magnetic materials", "Rapid heating required", "Medium-melting alloys"],
+        "limitations": ["Requires induction-compatible crucibles", "Electromagnetic interference"],
+        "reference": "Widely used for ferrous and non-ferrous alloys"
+    },
+    "resistance_furnace": {
+        "name": "Resistance Furnace",
+        "description": "Joule heating in controlled atmosphere furnace",
+        "temperature_range": {
+            "min": 200,
+            "max": 1800,
+            "typical": 1200,
+            "unit": "°C"
+        },
+        "atmosphere": "Ar/H2",
+        "equipment_needed": ["Resistance Furnace", "Controlled Atmosphere"],
+        "prep_time_hours": 3,
+        "synthesis_time_hours": 8,
+        "cooling_time_hours": 12,
+        "success_probability": 0.75,
+        "estimated_cost_usd": 300,
+        "precursors": ["Oxide powders", "Carbonate precursors"],
+        "best_for": ["Ceramic materials", "Oxide synthesis", "Long annealing times"],
+        "limitations": ["Slow heating/cooling", "Limited to furnace-compatible materials"],
+        "reference": "Standard solid-state synthesis method"
+    },
+    "vacuum_arc_melting": {
+        "name": "Vacuum Arc Melting",
+        "description": "Arc melting under vacuum for reactive materials",
+        "temperature_range": {
+            "min": 1500,
+            "max": 2800,
+            "typical": 2400,
+            "unit": "°C"
+        },
+        "atmosphere": "Vacuum",
+        "equipment_needed": ["Vacuum Arc Melter", "Vacuum Chamber"],
+        "prep_time_hours": 4,
+        "synthesis_time_hours": 1.5,
+        "cooling_time_hours": 3,
+        "success_probability": 0.70,
+        "estimated_cost_usd": 400,
+        "precursors": ["Pure elements", "Reactive metals"],
+        "best_for": ["Reactive metals", "High-purity alloys", "Titanium alloys"],
+        "limitations": ["Expensive equipment", "Complex vacuum system maintenance"],
+        "reference": "Essential for reactive and refractory metals"
+    },
+    "plasma_arc_melting": {
+        "name": "Plasma Arc Melting",
+        "description": "Plasma torch melting for ultra-high temperatures",
+        "temperature_range": {
+            "min": 2000,
+            "max": 5000,
+            "typical": 3500,
+            "unit": "°C"
+        },
+        "atmosphere": "Ar/N2",
+        "equipment_needed": ["Plasma Arc Furnace"],
+        "prep_time_hours": 5,
+        "synthesis_time_hours": 2,
+        "cooling_time_hours": 4,
+        "success_probability": 0.65,
+        "estimated_cost_usd": 600,
+        "precursors": ["Refractory metals", "High-melting compounds"],
+        "best_for": ["Ultra-high melting materials", "Refractory alloys", "Specialty applications"],
+        "limitations": ["Very expensive", "High energy consumption", "Limited availability"],
+        "reference": "Used for aerospace and nuclear materials"
+    },
+    "solid_state_reaction": {
+        "name": "Solid State Reaction",
+        "description": "High-temperature reaction of solid precursors",
+        "temperature_range": {
+            "min": 600,
+            "max": 1400,
+            "typical": 1000,
+            "unit": "°C"
+        },
+        "atmosphere": "Air/Ar",
+        "equipment_needed": ["Muffle Furnace"],
+        "prep_time_hours": 2,
+        "synthesis_time_hours": 24,
+        "cooling_time_hours": 8,
+        "success_probability": 0.90,
+        "estimated_cost_usd": 50,
+        "precursors": ["Oxide powders", "Mixed powders"],
+        "best_for": ["Ceramic compounds", "Long reaction times needed", "Cost-effective synthesis"],
+        "limitations": ["Slow process", "May require multiple heating cycles"],
+        "reference": "Classic method for ceramic and inorganic synthesis"
+    },
+    "chemical_vapor_deposition": {
+        "name": "Chemical Vapor Deposition",
+        "description": "Gas-phase synthesis for thin films and coatings",
+        "temperature_range": {
+            "min": 300,
+            "max": 1200,
+            "typical": 800,
+            "unit": "°C"
+        },
+        "atmosphere": "Various gases",
+        "equipment_needed": ["CVD Reactor", "Gas Handling System"],
+        "prep_time_hours": 6,
+        "synthesis_time_hours": 4,
+        "cooling_time_hours": 2,
+        "success_probability": 0.60,
+        "estimated_cost_usd": 500,
+        "precursors": ["Metal halides", "Organometallics", "Hydrides"],
+        "best_for": ["Thin films", "Coatings", "Complex compositions"],
+        "limitations": ["Complex precursors", "Expensive gases", "Thin film morphology"],
+        "reference": "Essential for semiconductor and coating industries"
+    },
+    "mechanical_alloying": {
+        "name": "Mechanical Alloying",
+        "description": "High-energy ball milling for alloy formation",
+        "temperature_range": {
+            "min": 25,
+            "max": 200,
+            "typical": 25,
+            "unit": "°C"
+        },
+        "atmosphere": "Ar/Inert",
+        "equipment_needed": ["Ball Mill", "Glove Box"],
+        "prep_time_hours": 1,
+        "synthesis_time_hours": 20,
+        "cooling_time_hours": 1,
+        "success_probability": 0.75,
+        "estimated_cost_usd": 100,
+        "precursors": ["Elemental powders", "Intermetallic compounds"],
+        "best_for": ["Amorphous alloys", "Nanocrystalline materials", "Difficult alloy systems"],
+        "limitations": ["Contamination risk", "Long milling times", "Powder handling"],
+        "reference": "Standard for producing amorphous and nanostructured alloys"
+    }
+}
+
+# Equipment categories for UI filtering
+EQUIPMENT_CATEGORIES = {
+    "Basic Lab Equipment": ["Muffle Furnace", "Ball Mill", "Glove Box"],
+    "Melting Equipment": ["Arc Melter", "Induction Furnace", "Resistance Furnace"],
+    "Advanced Equipment": ["Vacuum Arc Melter", "Plasma Arc Furnace", "Vacuum Chamber"],
+    "Specialized Equipment": ["CVD Reactor", "Gas Handling System", "Controlled Atmosphere"]
+}
+
 
 def classify_stability_category(energy_above_hull: float) -> str:
     """
@@ -907,65 +1087,237 @@ def calculate_synthesis_priority(materials_df: pd.DataFrame) -> pd.DataFrame:
     return results_df
 
 
-def cost_benefit_analysis(material_data: Dict) -> Dict:
-    """Perform cost-benefit analysis for material synthesis."""
-    # This is a simplified analysis - real implementation would include:
-    # - Actual precursor costs
-    # - Equipment costs
-    # - Time requirements
-    # - Success probabilities
-    # - Market value of material if successful
+def recommend_synthesis_method(material_data: Dict, available_equipment: List[str] = None) -> Dict:
+    """
+    Recommend the best synthesis method based on material properties and available equipment.
 
-    base_costs = {
-        'solid_state': {'equipment': 500, 'materials': 200, 'time': 48, 'labor': 400},
-        'arc_melting': {'equipment': 200, 'materials': 150, 'time': 8, 'labor': 150},
-        'cvd': {'equipment': 2000, 'materials': 500, 'time': 72, 'labor': 800}
-    }
+    Args:
+        material_data: Dict containing material properties
+        available_equipment: List of available equipment names. If None, assumes all equipment available.
 
-    # Estimate success probability
-    stability = 1 - material_data.get('energy_above_hull', 0) / 0.5
-    stability = np.clip(stability, 0, 1)
+    Returns:
+        Dict with recommended method details and reasoning
+    """
+    stability_score = calculate_thermodynamic_stability_score(material_data)['thermodynamic_stability_score']
+    synthesizability = material_data.get('ensemble_probability', 0.5)
+    band_gap = material_data.get('band_gap', 1.0)
+    density = material_data.get('density', 7.0)
 
-    synthesizability = material_data.get('synthesizability_probability', 0.5)
+    # Score each method based on material compatibility
+    method_scores = {}
 
-    # Choose best method based on material properties
-    if material_data.get('band_gap', 0) < 2.0:
-        method = 'arc_melting'
-        success_prob = min(0.9, stability * synthesizability * 1.2)
-    elif stability > 0.7:
-        method = 'solid_state'
-        success_prob = min(0.8, stability * synthesizability * 1.1)
-    else:
-        method = 'cvd'
-        success_prob = min(0.6, stability * synthesizability)
+    for method_key, method_info in SYNTHESIS_METHODS.items():
+        score = 0.0
+        reasons = []
 
-    costs = base_costs[method]
+        # Check equipment availability
+        if available_equipment:
+            has_required_equipment = all(eq in available_equipment for eq in method_info['equipment_needed'])
+            if not has_required_equipment:
+                method_scores[method_key] = {'score': -1, 'reason': 'Required equipment not available'}
+                continue
 
-    # Expected cost (accounting for failure probability)
-    expected_cost = sum(costs.values()) / success_prob
+        # Score based on material properties and method suitability
 
-    # Estimated value (simplified - based on stability and potential applications)
-    if material_data.get('band_gap', 0) > 1.5:
-        # Semiconductor potential
-        value = 10000 * stability * synthesizability
-    elif material_data.get('total_magnetization', 0) > 0.1:
-        # Magnetic material potential
-        value = 8000 * stability * synthesizability
-    else:
-        # Structural material potential
-        value = 5000 * stability * synthesizability
+        # Arc melting - best for conductive metals and alloys
+        if method_key == 'arc_melting':
+            if band_gap < 2.0:  # Metallic or narrow bandgap
+                score += 3.0
+                reasons.append("Suitable for metallic systems")
+            if density > 6.0:  # Dense materials
+                score += 1.0
+                reasons.append("Good for high-density materials")
 
-    expected_value = value * success_prob
-    net_benefit = expected_value - expected_cost
+        # Induction melting - good for magnetic materials
+        elif method_key == 'induction_melting':
+            if band_gap < 2.0:
+                score += 2.5
+                reasons.append("Suitable for conductive materials")
+            # Could add magnetic property check here
+
+        # Resistance furnace - good for ceramics and controlled atmosphere
+        elif method_key == 'resistance_furnace':
+            if stability_score > 0.6:  # Stable materials
+                score += 2.0
+                reasons.append("Good for stable compounds requiring controlled atmosphere")
+            if band_gap > 1.5:  # Insulators/semiconductors
+                score += 1.5
+                reasons.append("Suitable for ceramic and semiconductor materials")
+
+        # Vacuum arc melting - for reactive materials
+        elif method_key == 'vacuum_arc_melting':
+            if band_gap < 2.0:
+                score += 2.5
+                reasons.append("Suitable for reactive metals under vacuum")
+            if stability_score < 0.7:  # Less stable materials
+                score += 1.0
+                reasons.append("Vacuum helps with reactive materials")
+
+        # Solid state reaction - cost-effective for stable compounds
+        elif method_key == 'solid_state_reaction':
+            if stability_score > 0.7:
+                score += 3.0
+                reasons.append("Excellent for stable compounds")
+            score += 1.0  # Cost-effective baseline
+
+        # CVD - for thin films and complex compositions
+        elif method_key == 'chemical_vapor_deposition':
+            if stability_score < 0.6:  # Less stable materials
+                score += 2.0
+                reasons.append("Can synthesize metastable phases")
+            if band_gap > 1.0:  # Semiconductors
+                score += 1.5
+                reasons.append("Good for semiconductor thin films")
+
+        # Mechanical alloying - for difficult alloy systems
+        elif method_key == 'mechanical_alloying':
+            if stability_score < 0.6:  # Immiscible systems
+                score += 2.5
+                reasons.append("Can form metastable solid solutions")
+            if band_gap < 2.0:
+                score += 1.0
+                reasons.append("Suitable for alloy formation")
+
+        # Adjust score based on method success probability and cost
+        score *= method_info['success_probability']  # Weight by inherent method reliability
+        score /= (method_info['estimated_cost_usd'] / 100)  # Penalize expensive methods
+
+        method_scores[method_key] = {
+            'score': score,
+            'reasons': reasons,
+            'method_info': method_info
+        }
+
+    # Select best method
+    valid_methods = {k: v for k, v in method_scores.items() if v['score'] >= 0}
+    if not valid_methods:
+        return {
+            'method_key': None,
+            'method_name': 'No suitable method available',
+            'reason': 'Required equipment not available for any method',
+            'details': {}
+        }
+
+    best_method_key = max(valid_methods.keys(), key=lambda k: valid_methods[k]['score'])
+    best_method_data = valid_methods[best_method_key]
+
+    method_info = best_method_data['method_info']
 
     return {
-        'recommended_method': method,
-        'success_probability': success_prob,
-        'total_cost': sum(costs.values()),
+        'method_key': best_method_key,
+        'method_name': method_info['name'],
+        'description': method_info['description'],
+        'temperature_range': method_info['temperature_range'],
+        'atmosphere': method_info['atmosphere'],
+        'equipment_needed': method_info['equipment_needed'],
+        'total_time_hours': (method_info['prep_time_hours'] +
+                           method_info['synthesis_time_hours'] +
+                           method_info['cooling_time_hours']),
+        'estimated_cost_usd': method_info['estimated_cost_usd'],
+        'success_probability': method_info['success_probability'],
+        'reasons': best_method_data['reasons'],
+        'best_for': method_info['best_for'],
+        'limitations': method_info['limitations'],
+        'reference': method_info['reference']
+    }
+
+
+def cost_benefit_analysis(material_data: Dict, available_equipment: List[str] = None) -> Dict:
+    """
+    Perform cost-benefit analysis for material synthesis using process-aware methods.
+
+    Args:
+        material_data: Dict containing material properties
+        available_equipment: List of available equipment names. If None, assumes all equipment available.
+
+    Returns:
+        Dict with detailed cost-benefit analysis
+    """
+    # Get recommended synthesis method
+    synthesis_recommendation = recommend_synthesis_method(material_data, available_equipment)
+
+    if synthesis_recommendation['method_key'] is None:
+        return {
+            'recommended_method': 'No suitable method available',
+            'reason': synthesis_recommendation['reason'],
+            'success_probability': 0.0,
+            'total_cost': 0,
+            'expected_cost': 0,
+            'expected_value': 0,
+            'net_benefit': 0,
+            'benefit_cost_ratio': 0,
+            'synthesis_details': {}
+        }
+
+    # Extract method details
+    method_key = synthesis_recommendation['method_key']
+    method_info = SYNTHESIS_METHODS[method_key]
+
+    # Calculate adjusted success probability based on material properties
+    stability = material_data.get('thermodynamic_stability_score', 0.5)
+    synthesizability = material_data.get('ensemble_probability', 0.5)
+    base_success_prob = method_info['success_probability']
+
+    # Adjust success probability based on material stability and synthesizability
+    adjusted_success_prob = min(0.95, base_success_prob * stability * synthesizability * 1.1)
+    adjusted_success_prob = max(0.1, adjusted_success_prob)  # Minimum 10% success rate
+
+    # Calculate costs (simplified - in practice would use actual pricing)
+    labor_rate_per_hour = 50  # USD/hour
+    equipment_depreciation_rate = 0.1  # 10% of equipment cost per use
+
+    prep_cost = method_info['prep_time_hours'] * labor_rate_per_hour
+    synthesis_cost = method_info['synthesis_time_hours'] * labor_rate_per_hour * 1.5  # Higher rate during synthesis
+    cooling_cost = method_info['cooling_time_hours'] * labor_rate_per_hour * 0.5  # Lower rate during cooling
+
+    equipment_cost = method_info['estimated_cost_usd'] * equipment_depreciation_rate
+    materials_cost = method_info['estimated_cost_usd'] * 0.3  # Estimate material costs
+
+    total_cost = prep_cost + synthesis_cost + cooling_cost + equipment_cost + materials_cost
+    expected_cost = total_cost / adjusted_success_prob  # Account for failure probability
+
+    # Estimate material value (simplified market valuation)
+    stability_score = material_data.get('thermodynamic_stability_score', 0.5)
+    synth_score = material_data.get('ensemble_probability', 0.5)
+    band_gap = material_data.get('band_gap', 1.0)
+
+    # Base value depends on potential applications
+    if band_gap > 2.5:  # Wide bandgap semiconductor
+        base_value = 50000
+    elif band_gap > 1.5:  # Semiconductor
+        base_value = 30000
+    elif band_gap < 0.5:  # Metallic conductor
+        base_value = 20000
+    else:  # Other materials
+        base_value = 15000
+
+    # Adjust value based on stability and synthesizability
+    material_value = base_value * stability_score * synth_score
+    expected_value = material_value * adjusted_success_prob
+
+    net_benefit = expected_value - expected_cost
+    benefit_cost_ratio = expected_value / expected_cost if expected_cost > 0 else 0
+
+    return {
+        'recommended_method': synthesis_recommendation['method_name'],
+        'method_key': method_key,
+        'success_probability': adjusted_success_prob,
+        'total_cost': total_cost,
         'expected_cost': expected_cost,
         'expected_value': expected_value,
         'net_benefit': net_benefit,
-        'benefit_cost_ratio': expected_value / expected_cost if expected_cost > 0 else 0
+        'benefit_cost_ratio': benefit_cost_ratio,
+        'synthesis_details': {
+            'temperature_range': synthesis_recommendation['temperature_range'],
+            'atmosphere': synthesis_recommendation['atmosphere'],
+            'equipment_needed': synthesis_recommendation['equipment_needed'],
+            'total_time_hours': synthesis_recommendation['total_time_hours'],
+            'estimated_cost_usd': synthesis_recommendation['estimated_cost_usd'],
+            'reasons': synthesis_recommendation['reasons'],
+            'best_for': synthesis_recommendation['best_for'],
+            'limitations': synthesis_recommendation['limitations'],
+            'reference': synthesis_recommendation['reference']
+        }
     }
 
 
