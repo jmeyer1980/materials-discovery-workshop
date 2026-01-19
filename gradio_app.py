@@ -1280,16 +1280,31 @@ def create_gradio_interface():
                 return None, None
 
             try:
-                # Import the export function
-                from export_for_lab import export_for_lab
+                # For now, just return the regular CSV export path
+                # This will work while we debug the full export
+                if len(df) > 0:
+                    # Create a simple CSV file for testing
+                    import tempfile
+                    import os
+                    temp_file = tempfile.NamedTemporaryFile(mode='w', suffix='.csv', delete=False)
+                    df.head(10).to_csv(temp_file.name, index=False)  # Just first 10 rows for testing
+                    temp_file.close()
 
-                # Generate both CSV and PDF using global ML metrics
-                csv_path, pdf_path = export_for_lab(df, global_ml_metrics, ".")
+                    # For PDF, create a simple text file for now
+                    temp_pdf = tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False)
+                    temp_pdf.write("PDF generation temporarily disabled for debugging\n")
+                    temp_pdf.write(f"Generated {len(df)} materials\n")
+                    temp_pdf.close()
 
-                return csv_path, pdf_path
+                    print(f"Debug export: Created temporary files {temp_file.name}, {temp_pdf.name}")
+                    return temp_file.name, temp_pdf.name
+
+                return None, None
 
             except Exception as e:
                 print(f"Error in lab export: {e}")
+                import traceback
+                traceback.print_exc()
                 return None, None
 
         # Connect lab export button
