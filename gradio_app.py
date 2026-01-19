@@ -11,7 +11,7 @@ import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import Dataset, DataLoader
 import matplotlib.pyplot as plt
-import seaborn as sns
+# import seaborn as sns
 from sklearn.preprocessing import StandardScaler
 from sklearn.cluster import KMeans
 from sklearn.decomposition import PCA
@@ -25,7 +25,7 @@ warnings.filterwarnings('ignore')
 
 # Set plotting style
 plt.style.use('default')
-sns.set_palette("husl")
+# sns.set_palette("husl")
 
 # ============================================================================
 # SYNTHESIZABILITY PREDICTION MODULE (Embedded from notebook)
@@ -702,7 +702,7 @@ def create_gradio_interface():
             return error_msg, None, pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
 
     # Create Gradio interface
-    with gr.Blocks(title="Materials Discovery Workshop", theme=gr.themes.Soft()) as interface:
+    with gr.Blocks(title="Materials Discovery Workshop") as interface:
 
         gr.Markdown("""
         # 🧪 Materials Discovery Workshop
@@ -805,6 +805,5 @@ if __name__ == "__main__":
     interface = create_gradio_interface()
     interface.launch(
         server_name="0.0.0.0",
-        server_port=7860,
-        show_api=False
+        server_port=7860
     )
