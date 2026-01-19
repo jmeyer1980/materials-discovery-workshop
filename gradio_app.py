@@ -489,7 +489,7 @@ def run_synthesizability_analysis(materials_df: pd.DataFrame, ml_classifier: Syn
             'stability_color': 'gray'
         } for _ in range(len(analysis_df))]
 
-    # ML predictions for experimental synthesizability
+    # ML predictions for experimental synthesizability (now includes calibration and in-distribution)
     ml_results = ml_classifier.predict(analysis_df)
 
     # LLM predictions for experimental synthesizability
@@ -753,11 +753,46 @@ def create_gradio_interface():
             cba_display = cba_df[['formula', 'recommended_method', 'success_probability',
                                 'net_benefit', 'benefit_cost_ratio']].round(3)
 
-            return summary_text, fig, styled_results, priority_table, workflow_table, cba_display, methods_ref_df
+            # Create reliability plot (calibration curve and distance histogram)
+            fig2, (ax1, ax2) = plt.subplots(1, 2, figsize=(15, 6))
+
+            # Calibration curve
+            if hasattr(ml_classifier, 'calibration_curve') and ml_classifier.calibration_curve is not None:
+                prob_true, prob_pred, bins = ml_classifier.calibration_curve
+                ax1.plot(prob_pred, prob_true, 's-', label='Calibration curve', color='blue', linewidth=2)
+                ax1.plot([0, 1], [0, 1], 'k--', label='Perfect calibration', alpha=0.7)
+                ax1.set_xlabel('Predicted Probability')
+                ax1.set_ylabel('True Probability')
+                ax1.set_title('Calibration Curve')
+                ax1.legend()
+                ax1.grid(True, alpha=0.3)
+                ax1.set_xlim(0, 1)
+                ax1.set_ylim(0, 1)
+
+            # Distance histogram
+            if 'nn_distance' in results_df.columns:
+                in_dist_mask = results_df['in_distribution'] == 'in-dist'
+                out_dist_mask = results_df['in_distribution'] == 'out-dist'
+
+                ax2.hist(results_df.loc[in_dist_mask, 'nn_distance'], bins=20, alpha=0.7,
+                        label='In-distribution', color='green', density=True)
+                ax2.hist(results_df.loc[out_dist_mask, 'nn_distance'], bins=20, alpha=0.7,
+                        label='Out-distribution', color='red', density=True)
+                ax2.axvline(x=np.percentile(results_df['nn_distance'], 95), color='black',
+                           linestyle='--', alpha=0.7, label='95th percentile threshold')
+                ax2.set_xlabel('Nearest Neighbor Distance')
+                ax2.set_ylabel('Density')
+                ax2.set_title('In-Distribution vs Out-Distribution')
+                ax2.legend()
+                ax2.grid(True, alpha=0.3)
+
+            plt.tight_layout()
+
+            return summary_text, fig, styled_results, priority_table, workflow_table, cba_display, methods_ref_df, fig2
 
         except Exception as e:
             error_msg = f"Error during generation: {str(e)}"
-            return error_msg, None, pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
+            return error_msg, None, pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), None
 
     # Create Gradio interface
     with gr.Blocks(title="Materials Discovery Workshop") as interface:
@@ -852,6 +887,25 @@ def create_gradio_interface():
                     wrap=True
                 )
 
+            with gr.TabItem("📈 Model Reliability"):
+                gr.Markdown("### Calibration Metrics & In-Distribution Detection")
+                gr.Markdown("""
+                **Understanding Model Reliability:**
+
+                **Calibration Curve**: Shows how well predicted probabilities match actual outcomes.
+                - **Well-calibrated**: Predictions accurately reflect true likelihood
+                - **Overconfident**: Model is too sure (predicts high probability but often wrong)
+                - **Underconfident**: Model is too conservative (predicts low probability but often right)
+
+                **In-Distribution Detection**: Identifies materials similar to training data.
+                - **In-distribution (in-dist)**: Material properties are similar to training data → trust predictions more
+                - **Out-distribution (out-dist)**: Material is novel/different → predictions may be less reliable
+
+                *In-distribution = similar to training data, trust more*
+                """)
+
+                reliability_plot = gr.Plot(label="Calibration Curve & Distance Histogram")
+
             with gr.TabItem("📥 CSV Export"):
                 gr.Markdown("### Export Materials Data for Lab Use")
                 gr.Markdown("""
@@ -944,7 +998,7 @@ def create_gradio_interface():
         generate_btn.click(
             fn=generate_with_csv,
             inputs=[latent_dim, epochs, num_samples, available_equipment],
-            outputs=[summary_output, plot_output, materials_table, priority_table, workflow_table, cba_table, methods_table, csv_download]
+            outputs=[summary_output, plot_output, materials_table, priority_table, workflow_table, cba_table, methods_table, reliability_plot, csv_download]
         )
 
         gr.Markdown("""
