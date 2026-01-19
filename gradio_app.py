@@ -742,6 +742,9 @@ def create_gradio_interface():
     # Initialize synthesis methods reference table
     methods_ref_df = get_synthesis_methods_reference()
 
+    # State for storing ML metrics
+    ml_metrics_state = gr.State()
+
     def generate_and_analyze(latent_dim, epochs, num_samples, available_equipment):
         """Main function to generate materials and run analysis."""
         try:
@@ -1250,15 +1253,15 @@ def create_gradio_interface():
             # Return all original results plus CSV path
             return results + (csv_path,)
 
-        # Update the button to use the new function
+        # Update the button to use the new function and store ML metrics
         generate_btn.click(
-            fn=generate_with_csv,
+            fn=lambda *args: generate_with_csv(*args) + (ml_metrics,),
             inputs=[latent_dim, epochs, num_samples, available_equipment],
-            outputs=[summary_output, plot_output, materials_table, priority_table, workflow_table, cba_table, methods_table, reliability_plot, csv_download]
+            outputs=[summary_output, plot_output, materials_table, priority_table, workflow_table, cba_table, methods_table, reliability_plot, csv_download, ml_metrics_state]
         )
 
         # Function for lab export with proper data access
-        def prepare_lab_export_from_table(materials_table_data, ml_metrics):
+        def prepare_lab_export_from_table(materials_table_data, ml_metrics_state):
             """Prepare comprehensive lab export from table data."""
             if hasattr(materials_table_data, 'data'):
                 df = materials_table_data.data
@@ -1273,7 +1276,7 @@ def create_gradio_interface():
                 from export_for_lab import export_for_lab
 
                 # Generate both CSV and PDF
-                csv_path, pdf_path = export_for_lab(df, ml_metrics, ".")
+                csv_path, pdf_path = export_for_lab(df, ml_metrics_state, ".")
 
                 return csv_path, pdf_path
 
@@ -1284,7 +1287,7 @@ def create_gradio_interface():
         # Connect lab export button
         export_button.click(
             fn=prepare_lab_export_from_table,
-            inputs=[materials_table, ml_metrics],
+            inputs=[materials_table, ml_metrics_state],
             outputs=[lab_csv_download, lab_pdf_download]
         )
 
