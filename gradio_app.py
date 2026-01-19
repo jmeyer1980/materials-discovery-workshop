@@ -464,7 +464,7 @@ def generate_materials(model: OptimizedVAE, scaler: StandardScaler, num_samples:
 
 def run_synthesizability_analysis(materials_df: pd.DataFrame, ml_classifier: SynthesizabilityClassifier,
                                 llm_predictor: LLMSynthesizabilityPredictor) -> pd.DataFrame:
-    """Run complete synthesizability analysis on materials."""
+    """Run complete synthesizability analysis on materials, separating thermodynamic stability from experimental synthesizability."""
     # Prepare data for analysis
     analysis_df = materials_df.copy()
 
@@ -474,10 +474,25 @@ def run_synthesizability_analysis(materials_df: pd.DataFrame, ml_classifier: Syn
     analysis_df['band_gap'] = np.random.uniform(0, 3, len(analysis_df))
     analysis_df['nsites'] = np.random.randint(2, 8, len(analysis_df))
 
-    # ML predictions
+    # Calculate thermodynamic stability scores (separate from synthesizability)
+    try:
+        from synthesizability_predictor import calculate_thermodynamic_stability_score
+        stability_results = []
+        for idx, material in analysis_df.iterrows():
+            stability_result = calculate_thermodynamic_stability_score(material.to_dict())
+            stability_results.append(stability_result)
+    except ImportError:
+        # Fallback if function not available
+        stability_results = [{
+            'thermodynamic_stability_score': 0.5,
+            'thermodynamic_stability_category': 'unknown',
+            'stability_color': 'gray'
+        } for _ in range(len(analysis_df))]
+
+    # ML predictions for experimental synthesizability
     ml_results = ml_classifier.predict(analysis_df)
 
-    # LLM predictions
+    # LLM predictions for experimental synthesizability
     llm_predictions = []
     for idx, material in analysis_df.iterrows():
         llm_result = llm_predictor.predict_synthesizability(material.to_dict())
@@ -489,13 +504,18 @@ def run_synthesizability_analysis(materials_df: pd.DataFrame, ml_classifier: Syn
     results_df['llm_probability'] = [p['probability'] for p in llm_predictions]
     results_df['llm_confidence'] = [p['confidence'] for p in llm_predictions]
 
-    # Ensemble prediction
+    # Ensemble prediction for experimental synthesizability
     results_df['ensemble_probability'] = (
         0.7 * results_df['synthesizability_probability'] +
         0.3 * results_df['llm_probability']
     )
     results_df['ensemble_prediction'] = (results_df['ensemble_probability'] >= 0.5).astype(int)
     results_df['ensemble_confidence'] = np.abs(results_df['ensemble_probability'] - 0.5) * 2
+
+    # Add thermodynamic stability results (separate from synthesizability)
+    results_df['thermodynamic_stability_score'] = [r['thermodynamic_stability_score'] for r in stability_results]
+    results_df['thermodynamic_stability_category'] = [r['thermodynamic_stability_category'] for r in stability_results]
+    results_df['stability_color'] = [r['stability_color'] for r in stability_results]
 
     return results_df
 
@@ -702,13 +722,26 @@ def create_gradio_interface():
 
             plt.tight_layout()
 
-            # Prepare results tables
-            display_cols = ['formula', 'ensemble_probability', 'ensemble_confidence',
-                          'energy_above_hull', 'density', 'melting_point']
+            # Prepare results tables with separate stability and synthesizability columns
+            display_cols = ['formula', 'thermodynamic_stability_score', 'thermodynamic_stability_category',
+                          'ensemble_probability', 'ensemble_confidence', 'energy_above_hull', 'density', 'melting_point']
             results_table = results_df[display_cols].round(3)
 
+            # Apply color coding for stability status
+            def color_stability(val):
+                if val == 'highly_stable':
+                    return 'background-color: lightgreen'
+                elif val == 'marginal':
+                    return 'background-color: lightyellow'
+                elif val == 'unstable':
+                    return 'background-color: lightcoral'
+                return ''
+
+            # Style the results table with color coding
+            styled_results = results_table.style.applymap(color_stability, subset=['thermodynamic_stability_category'])
+
             priority_cols = ['formula', 'synthesis_priority_score', 'synthesis_priority_rank',
-                           'ensemble_probability', 'energy_above_hull', 'density']
+                           'thermodynamic_stability_score', 'ensemble_probability', 'energy_above_hull', 'density']
             priority_table = priority_df[priority_cols].round(3).head(20)
 
             workflow_cols = ['workflow_step', 'batch_number', 'priority_level',
@@ -718,7 +751,7 @@ def create_gradio_interface():
             cba_display = cba_df[['formula', 'recommended_method', 'success_probability',
                                 'net_benefit', 'benefit_cost_ratio']].round(3)
 
-            return summary_text, fig, results_table, priority_table, workflow_table, cba_display
+            return summary_text, fig, styled_results, priority_table, workflow_table, cba_display
 
         except Exception as e:
             error_msg = f"Error during generation: {str(e)}"
@@ -767,16 +800,17 @@ def create_gradio_interface():
                     plot_output = gr.Plot()
 
             with gr.TabItem("🧪 Generated Materials"):
-                gr.Markdown("### All Generated Materials with Synthesizability Predictions")
+                gr.Markdown("### All Generated Materials with Stability & Synthesizability Predictions")
                 materials_table = gr.DataFrame(
-                    headers=["Formula", "Synth. Prob.", "Confidence", "E_hull", "Density", "Melting Point"],
-                    label="Generated Materials"
+                    headers=["Formula", "Stability Score", "Stability Category", "Synth. Prob.", "Synth. Conf.", "E_hull", "Density", "Melting Point"],
+                    label="Generated Materials",
+                    wrap=True
                 )
 
             with gr.TabItem("🎯 Priority Ranking"):
                 gr.Markdown("### Synthesis Priority Ranking (Top 20 Materials)")
                 priority_table = gr.DataFrame(
-                    headers=["Formula", "Priority Score", "Rank", "Synth. Prob.", "E_hull", "Density"],
+                    headers=["Formula", "Priority Score", "Rank", "Stability Score", "Synth. Prob.", "E_hull", "Density"],
                     label="Priority Ranked Materials"
                 )
 
@@ -798,17 +832,23 @@ def create_gradio_interface():
         ### How it Works
         1. **VAE Training**: A Variational Autoencoder learns patterns from existing materials data
         2. **Material Generation**: The trained model generates new alloy compositions
-        3. **Synthesizability Prediction**: ML and rule-based models predict experimental feasibility
-        4. **Priority Ranking**: Materials are ranked by synthesis priority and potential value
-        5. **Cost-Benefit Analysis**: Economic evaluation of synthesis candidates
-        6. **Workflow Planning**: Prioritized experimental validation schedule
+        3. **Thermodynamic Stability Assessment**: Evaluates chemical/phase stability based on energy above hull and formation energies
+        4. **Experimental Synthesizability Prediction**: ML and rule-based models predict experimental feasibility
+        5. **Priority Ranking**: Materials are ranked by synthesis priority and potential value
+        6. **Cost-Benefit Analysis**: Economic evaluation of synthesis candidates
+        7. **Workflow Planning**: Prioritized experimental validation schedule
+
+        ### Key Distinctions
+        - **Thermodynamic Stability**: Chemical/phase stability (E_hull, formation energy, density) - indicates if a material is *chemically stable*
+        - **Experimental Synthesizability**: Laboratory feasibility and experimental accessibility - indicates if a material is *experimentally feasible*
 
         ### Model Details
         - **Dataset**: Synthetic alloy compositions (can be extended to real Materials Project data)
         - **VAE Architecture**: Encoder → Latent Space → Decoder with KL divergence regularization
-        - **Prediction Models**: Random Forest classifier + Rule-based expert system
-        - **Ensemble Method**: Weighted combination of ML and expert predictions
-        - **Priority Scoring**: Multi-criteria optimization (stability, synthesizability, novelty, ease)
+        - **Stability Assessment**: Rule-based scoring using literature thresholds (highly stable ≤0.025 eV/atom, marginal ≤0.1 eV/atom, unstable >0.1 eV/atom)
+        - **Synthesizability Prediction Models**: Random Forest classifier + Rule-based expert system
+        - **Ensemble Method**: Weighted combination of ML and expert predictions for experimental feasibility
+        - **Priority Scoring**: Multi-criteria optimization (thermodynamic stability, experimental synthesizability, novelty, ease)
         """)
 
         # Connect the interface
