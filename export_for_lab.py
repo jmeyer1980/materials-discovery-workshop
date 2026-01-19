@@ -97,13 +97,13 @@ def prepare_lab_ready_csv(predictions_df: pd.DataFrame,
     csv_df['Stability'] = csv_df.get('thermodynamic_stability_category', 'unknown')
 
     # Energy above hull
-    csv_df['E_hull'] = csv_df.get('energy_above_hull', 0).round(4)
+    csv_df['E_hull'] = pd.to_numeric(csv_df.get('energy_above_hull', 0), errors='coerce').fillna(0).round(4)
 
     # Synthesis probability
-    csv_df['SynthProb'] = csv_df.get('ensemble_probability', 0).round(4)
+    csv_df['SynthProb'] = pd.to_numeric(csv_df.get('ensemble_probability', 0), errors='coerce').fillna(0).round(4)
 
     # ML confidence
-    csv_df['MLConf'] = csv_df.get('ensemble_confidence', 0).round(4)
+    csv_df['MLConf'] = pd.to_numeric(csv_df.get('ensemble_confidence', 0), errors='coerce').fillna(0).round(4)
 
     # Recommended synthesis method, temperature, atmosphere
     csv_df['Method'] = 'Unknown'
@@ -140,7 +140,7 @@ def prepare_lab_ready_csv(predictions_df: pd.DataFrame,
 
     # In-distribution status and nearest neighbor distance
     csv_df['InDist'] = csv_df.get('in_distribution', 'unknown')
-    csv_df['NNDistance'] = csv_df.get('nn_distance', 0).round(4)
+    csv_df['NNDistance'] = pd.to_numeric(csv_df.get('nn_distance', 0), errors='coerce').fillna(0).round(4)
 
     # Notes column with additional information
     def create_notes(row):
