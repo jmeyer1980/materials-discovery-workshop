@@ -422,7 +422,7 @@ def train_vae_model(features_scaled: np.ndarray, latent_dim: int = 5, epochs: in
     return model
 
 def generate_materials(model: OptimizedVAE, scaler: StandardScaler, num_samples: int = 100) -> pd.DataFrame:
-    """Generate new materials using trained VAE."""
+    """Generate new materials using trained VAE with tight composition constraints."""
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     model.eval()
 
@@ -435,9 +435,15 @@ def generate_materials(model: OptimizedVAE, scaler: StandardScaler, num_samples:
         generated_features = scaler.inverse_transform(generated_features)
 
     for i, features in enumerate(generated_features):
+        # Randomly select elements
         elem1, elem2 = random.sample(elements, 2)
-        comp1 = max(0.1, min(0.9, features[0]))
+
+        # Enforce tight composition constraints (5-95% range)
+        comp1 = np.clip(features[0], 0.05, 0.95)
         comp2 = 1.0 - comp1
+
+        # Assert composition validity (within floating point tolerance)
+        assert abs(comp1 + comp2 - 1.0) < 1e-6, f"Composition constraint violated: {comp1} + {comp2} = {comp1 + comp2}"
 
         material = {
             'id': f'generated_{i+1}',
