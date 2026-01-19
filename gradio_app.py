@@ -742,8 +742,8 @@ def create_gradio_interface():
     # Initialize synthesis methods reference table
     methods_ref_df = get_synthesis_methods_reference()
 
-    # State for storing ML metrics
-    ml_metrics_state = gr.State()
+    # Global variable to store ML metrics for export functions
+    global_ml_metrics = None
 
     def generate_and_analyze(latent_dim, epochs, num_samples, available_equipment):
         """Main function to generate materials and run analysis."""
@@ -1251,16 +1251,26 @@ def create_gradio_interface():
             # Return all original results plus CSV path
             return results + (csv_path,)
 
-        # Simplified generation - update all components directly
+        # Generation with global variable storage
+        def generate_and_store_global(latent_dim, epochs, num_samples, available_equipment):
+            """Generate materials and store ML metrics globally for export functions."""
+            global global_ml_metrics
+            results = generate_with_csv(latent_dim, epochs, num_samples, available_equipment)
+            # Store ML metrics globally
+            global_ml_metrics = ml_metrics
+            return results
+
         generate_btn.click(
-            fn=generate_with_csv,
+            fn=generate_and_store_global,
             inputs=[latent_dim, epochs, num_samples, available_equipment],
             outputs=[summary_output, plot_output, materials_table, priority_table, workflow_table, cba_table, methods_table, reliability_plot, csv_download]
         )
 
-        # Function for lab export with proper data access
-        def prepare_lab_export_from_table(materials_table_data, ml_metrics_state):
-            """Prepare comprehensive lab export from table data."""
+        # Function for lab export using global variable
+        def prepare_lab_export_from_table(materials_table_data):
+            """Prepare comprehensive lab export from table data using global ML metrics."""
+            global global_ml_metrics
+
             if hasattr(materials_table_data, 'data'):
                 df = materials_table_data.data
             else:
@@ -1273,8 +1283,8 @@ def create_gradio_interface():
                 # Import the export function
                 from export_for_lab import export_for_lab
 
-                # Generate both CSV and PDF
-                csv_path, pdf_path = export_for_lab(df, ml_metrics_state, ".")
+                # Generate both CSV and PDF using global ML metrics
+                csv_path, pdf_path = export_for_lab(df, global_ml_metrics, ".")
 
                 return csv_path, pdf_path
 
@@ -1285,7 +1295,7 @@ def create_gradio_interface():
         # Connect lab export button
         export_button.click(
             fn=prepare_lab_export_from_table,
-            inputs=[materials_table, ml_metrics_state],
+            inputs=[materials_table],
             outputs=[lab_csv_download, lab_pdf_download]
         )
 
