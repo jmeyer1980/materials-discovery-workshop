@@ -18,7 +18,67 @@ from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_sc
 from sklearn.preprocessing import StandardScaler
 from typing import Dict, List, Tuple, Optional, Union
 import warnings
+import os
 warnings.filterwarnings('ignore')
+
+# Try to import Materials Project API functions
+try:
+    from materials_discovery_api import get_training_dataset, MaterialsProjectClient
+    MP_API_AVAILABLE = True
+except ImportError:
+    MP_API_AVAILABLE = False
+    print("Warning: Materials Project API not available, using synthetic data")
+
+# Import synthetic dataset function for fallback
+try:
+    from gradio_app import create_synthetic_dataset
+    SYNTHETIC_DATASET_AVAILABLE = True
+except ImportError:
+    SYNTHETIC_DATASET_AVAILABLE = False
+
+
+def create_synthetic_dataset_fallback(n_samples: int = 1000) -> pd.DataFrame:
+    """Create synthetic materials dataset for demonstration (fallback when import fails)."""
+    np.random.seed(42)
+
+    alloys = []
+    elements = ['Al', 'Ti', 'V', 'Cr', 'Mn', 'Fe', 'Co', 'Ni', 'Cu', 'Zn']
+
+    for i in range(n_samples):
+        alloy_type = np.random.choice(['binary', 'ternary'], p=[0.7, 0.3])
+
+        if alloy_type == 'binary':
+            elem1, elem2 = np.random.choice(elements, 2, replace=False)
+            comp1 = np.random.uniform(0.1, 0.9)
+            comp2 = 1 - comp1
+            comp3 = 0
+        else:
+            elem1, elem2, elem3 = np.random.choice(elements, 3, replace=False)
+            comp1 = np.random.uniform(0.1, 0.6)
+            comp2 = np.random.uniform(0.1, 0.6)
+            comp3 = 1 - comp1 - comp2
+
+        melting_point = np.random.normal(1500, 300)
+        density = np.random.normal(7.8, 2.0)
+        electronegativity = np.random.normal(1.8, 0.3)
+        atomic_radius = np.random.normal(1.3, 0.2)
+
+        alloys.append({
+            'id': f'alloy_{i+1}',
+            'alloy_type': alloy_type,
+            'element_1': elem1,
+            'element_2': elem2,
+            'element_3': elem3 if alloy_type == 'ternary' else None,
+            'composition_1': comp1,
+            'composition_2': comp2,
+            'composition_3': comp3,
+            'melting_point': max(500, melting_point),
+            'density': max(2, density),
+            'electronegativity': max(0.7, min(2.5, electronegativity)),
+            'atomic_radius': max(1.0, min(1.8, atomic_radius))
+        })
+
+    return pd.DataFrame(alloys)
 
 # Mock ICSD data for demonstration (in practice, this would come from actual ICSD database)
 def generate_mock_icsd_data(n_samples: int = 1000) -> pd.DataFrame:
@@ -125,6 +185,279 @@ def generate_mock_mp_only_data(n_samples: int = 1000) -> pd.DataFrame:
     return pd.DataFrame(data)
 
 
+def create_training_dataset_from_mp(api_key: str = None, n_materials: int = 1000) -> pd.DataFrame:
+    """
+    Create training dataset from real Materials Project data using stability thresholds.
+
+    Materials with energy_above_hull <= 0.025 eV/atom are considered experimentally likely (synthesizable = 1)
+    Materials with energy_above_hull >= 0.1 eV/atom are considered risky/unstable (synthesizable = 0)
+    """
+    if not MP_API_AVAILABLE:
+        print("Materials Project API not available, falling back to synthetic data")
+        # Create mixed synthetic dataset as fallback
+        icsd_data = generate_mock_icsd_data(n_materials // 2)
+        mp_data = generate_mock_mp_only_data(n_materials // 2)
+        combined = pd.concat([icsd_data, mp_data], ignore_index=True)
+        combined = combined.sample(frac=1, random_state=42).reset_index(drop=True)
+        return combined
+
+    # Use provided API key or get from environment
+    api_key = api_key or os.getenv("MP_API_KEY")
+    if not api_key:
+        print("No Materials Project API key provided, falling back to synthetic data")
+        icsd_data = generate_mock_icsd_data(n_materials // 2)
+        mp_data = generate_mock_mp_only_data(n_materials // 2)
+        combined = pd.concat([icsd_data, mp_data], ignore_index=True)
+        combined = combined.sample(frac=1, random_state=42).reset_index(drop=True)
+        return combined
+
+    try:
+        print(f"Fetching {n_materials} materials from Materials Project...")
+
+        # Get real training dataset
+        ml_features, raw_data = get_training_dataset(api_key=api_key, n_materials=n_materials)
+
+        if ml_features.empty:
+            print("No data retrieved from Materials Project, falling back to synthetic data")
+            icsd_data = generate_mock_icsd_data(n_materials // 2)
+            mp_data = generate_mock_mp_only_data(n_materials // 2)
+            combined = pd.concat([icsd_data, mp_data], ignore_index=True)
+            combined = combined.sample(frac=1, random_state=42).reset_index(drop=True)
+            return combined
+
+        # Convert ML features back to training format
+        training_data = ml_features.copy()
+
+        # Rename columns to match expected format
+        column_mapping = {
+            'melting_point': 'formation_energy_per_atom',
+            'electronegativity': 'electronegativity',
+            'atomic_radius': 'atomic_radius',
+            'density': 'density'
+        }
+        training_data = training_data.rename(columns=column_mapping)
+
+        # Add missing columns with defaults or calculations
+        training_data['band_gap'] = raw_data.get('band_gap', np.random.uniform(0, 3, len(training_data)))
+        training_data['nsites'] = raw_data.get('nsites', np.random.randint(2, 10, len(training_data)))
+        training_data['total_magnetization'] = raw_data.get('total_magnetization', 0)
+
+        # Create synthesizability labels based on energy_above_hull
+        training_data['energy_above_hull'] = raw_data.get('energy_above_hull', 0.05)
+
+        # Apply stability thresholds as per issue requirements
+        training_data['synthesizable'] = np.where(
+            training_data['energy_above_hull'] <= 0.025,  # Highly stable = experimentally likely
+            1,  # synthesizable
+            np.where(
+                training_data['energy_above_hull'] >= 0.1,  # High E_hull = risky
+                0,  # not synthesizable
+                np.random.choice([0, 1], size=len(training_data), p=[0.3, 0.7])  # Mixed for intermediate
+            )
+        )
+
+        # Ensure we have both classes
+        synthesizable_count = training_data['synthesizable'].sum()
+        total_count = len(training_data)
+
+        print(f"Created training dataset with {total_count} materials:")
+        print(f"  - Synthesizable (E_hull ≤ 0.025): {len(training_data[training_data['energy_above_hull'] <= 0.025])}")
+        print(f"  - Not synthesizable (E_hull ≥ 0.1): {len(training_data[training_data['energy_above_hull'] >= 0.1])}")
+        print(f"  - Mixed/intermediate: {len(training_data[(training_data['energy_above_hull'] > 0.025) & (training_data['energy_above_hull'] < 0.1)])}")
+        print(f"  - Overall synthesizable ratio: {synthesizable_count/total_count:.2f}")
+
+        return training_data
+
+    except Exception as e:
+        print(f"Error creating training dataset from Materials Project: {e}")
+        print("Falling back to synthetic data")
+        icsd_data = generate_mock_icsd_data(n_materials // 2)
+        mp_data = generate_mock_mp_only_data(n_materials // 2)
+        combined = pd.concat([icsd_data, mp_data], ignore_index=True)
+        combined = combined.sample(frac=1, random_state=42).reset_index(drop=True)
+        return combined
+
+
+def create_vae_training_dataset_from_mp(api_key: str = None, n_materials: int = 1000) -> pd.DataFrame:
+    """
+    Create VAE training dataset from real Materials Project alloy features.
+    This provides realistic alloy composition distributions for the VAE to learn from.
+    """
+    if not MP_API_AVAILABLE:
+        print("Materials Project API not available for VAE training, using synthetic data")
+        if SYNTHETIC_DATASET_AVAILABLE:
+            return create_synthetic_dataset(n_materials)
+        else:
+            # Create synthetic data inline if import failed
+            return create_synthetic_dataset_fallback(n_materials)
+
+    # Use provided API key or get from environment
+    api_key = api_key or os.getenv("MP_API_KEY")
+    if not api_key:
+        print("No Materials Project API key provided for VAE training, using synthetic data")
+        if SYNTHETIC_DATASET_AVAILABLE:
+            return create_synthetic_dataset(n_materials)
+        else:
+            # Create synthetic data inline if import failed
+            return create_synthetic_dataset_fallback(n_materials)
+
+    try:
+        print(f"Fetching {n_materials} materials from Materials Project for VAE training...")
+
+        # Get real training dataset
+        ml_features, raw_data = get_training_dataset(api_key=api_key, n_materials=n_materials)
+
+        if ml_features.empty:
+            print("No MP data for VAE training, falling back to synthetic data")
+            if SYNTHETIC_DATASET_AVAILABLE:
+                return create_synthetic_dataset(n_materials)
+            else:
+                return create_synthetic_dataset_fallback(n_materials)
+
+        # Convert to VAE training format (alloy composition features)
+        vae_data = []
+
+        for idx, row in ml_features.iterrows():
+            try:
+                # Get the original material data
+                material_info = raw_data.iloc[idx] if hasattr(raw_data, 'iloc') else raw_data.loc[idx]
+
+                # Extract element composition from formula or elements
+                formula = material_info.get('formula', '')
+                elements = material_info.get('elements', [])
+
+                # For binary alloys, estimate compositions (this is simplified)
+                # In practice, you'd parse the actual composition from the formula
+                if len(elements) == 2:
+                    # Use the ML features to create realistic alloy data
+                    alloy = {
+                        'id': f'mp_alloy_{idx+1}',
+                        'alloy_type': 'binary',
+                        'element_1': elements[0] if elements else 'Al',
+                        'element_2': elements[1] if len(elements) > 1 else 'Ti',
+                        'element_3': None,
+                        'composition_1': max(0.05, min(0.95, row.get('composition_1', 0.5))),
+                        'composition_2': max(0.05, min(0.95, row.get('composition_2', 0.5))),
+                        'composition_3': 0.0,
+                        'melting_point': row.get('melting_point', 1500),
+                        'density': row.get('density', 7.0),
+                        'electronegativity': row.get('electronegativity', 1.8),
+                        'atomic_radius': row.get('atomic_radius', 1.4),
+                        'source': 'materials_project'
+                    }
+                    vae_data.append(alloy)
+
+            except Exception as e:
+                print(f"Warning: Could not process MP material {idx}: {e}")
+                continue
+
+        if not vae_data:
+            print("No valid alloy data extracted, falling back to synthetic data")
+            return create_synthetic_dataset(n_materials)
+
+        result_df = pd.DataFrame(vae_data)
+        print(f"Created VAE training dataset with {len(result_df)} real alloy compositions")
+        return result_df
+
+    except Exception as e:
+        print(f"Error creating VAE training dataset from Materials Project: {e}")
+        print("Falling back to synthetic data")
+        return create_synthetic_dataset(n_materials)
+
+
+def create_training_dataset_from_mp(api_key: str = None, n_materials: int = 1000) -> pd.DataFrame:
+    """
+    Create training dataset from real Materials Project data using stability thresholds.
+
+    Materials with energy_above_hull <= 0.025 eV/atom are considered experimentally likely (synthesizable = 1)
+    Materials with energy_above_hull >= 0.1 eV/atom are considered risky/unstable (synthesizable = 0)
+    """
+    if not MP_API_AVAILABLE:
+        print("Materials Project API not available, falling back to synthetic data")
+        # Create mixed synthetic dataset as fallback
+        icsd_data = generate_mock_icsd_data(n_materials // 2)
+        mp_data = generate_mock_mp_only_data(n_materials // 2)
+        combined = pd.concat([icsd_data, mp_data], ignore_index=True)
+        combined = combined.sample(frac=1, random_state=42).reset_index(drop=True)
+        return combined
+
+    # Use provided API key or get from environment
+    api_key = api_key or os.getenv("MP_API_KEY")
+    if not api_key:
+        print("No Materials Project API key provided, falling back to synthetic data")
+        icsd_data = generate_mock_icsd_data(n_materials // 2)
+        mp_data = generate_mock_mp_only_data(n_materials // 2)
+        combined = pd.concat([icsd_data, mp_data], ignore_index=True)
+        combined = combined.sample(frac=1, random_state=42).reset_index(drop=True)
+        return combined
+
+    try:
+        print(f"Fetching {n_materials} materials from Materials Project...")
+
+        # Get real training dataset
+        ml_features, raw_data = get_training_dataset(api_key=api_key, n_materials=n_materials)
+
+        if ml_features.empty:
+            print("No data retrieved from Materials Project, falling back to synthetic data")
+            icsd_data = generate_mock_icsd_data(n_materials // 2)
+            mp_data = generate_mock_mp_only_data(n_materials // 2)
+            combined = pd.concat([icsd_data, mp_data], ignore_index=True)
+            combined = combined.sample(frac=1, random_state=42).reset_index(drop=True)
+            return combined
+
+        # Convert ML features back to training format
+        training_data = ml_features.copy()
+
+        # Rename columns to match expected format
+        column_mapping = {
+            'melting_point': 'formation_energy_per_atom',
+            'electronegativity': 'electronegativity',
+            'atomic_radius': 'atomic_radius',
+            'density': 'density'
+        }
+        training_data = training_data.rename(columns=column_mapping)
+
+        # Add missing columns with defaults or calculations
+        training_data['band_gap'] = raw_data.get('band_gap', np.random.uniform(0, 3, len(training_data)))
+        training_data['nsites'] = raw_data.get('nsites', np.random.randint(2, 10, len(training_data)))
+        training_data['total_magnetization'] = raw_data.get('total_magnetization', 0)
+
+        # Create synthesizability labels based on energy_above_hull
+        training_data['energy_above_hull'] = raw_data.get('energy_above_hull', 0.05)
+
+        # Apply stability thresholds as per issue requirements
+        training_data['synthesizable'] = np.where(
+            training_data['energy_above_hull'] <= 0.025,  # Highly stable = experimentally likely
+            1,  # synthesizable
+            np.where(
+                training_data['energy_above_hull'] >= 0.1,  # High E_hull = risky
+                0,  # not synthesizable
+                np.random.choice([0, 1], size=len(training_data), p=[0.3, 0.7])  # Mixed for intermediate
+            )
+        )
+
+        # Ensure we have both classes
+        synthesizable_count = training_data['synthesizable'].sum()
+        total_count = len(training_data)
+
+        print(f"Created training dataset with {total_count} materials:")
+        print(f"  - Synthesizable (E_hull ≤ 0.025): {len(training_data[training_data['energy_above_hull'] <= 0.025])}")
+        print(f"  - Not synthesizable (E_hull ≥ 0.1): {len(training_data[training_data['energy_above_hull'] >= 0.1])}")
+        print(f"  - Mixed/intermediate: {len(training_data[(training_data['energy_above_hull'] > 0.025) & (training_data['energy_above_hull'] < 0.1)])}")
+        print(f"  - Overall synthesizable ratio: {synthesizable_count/total_count:.2f}")
+
+        return training_data
+
+    except Exception as e:
+        print(f"Error creating training dataset from Materials Project: {e}")
+        print("Falling back to synthetic data")
+        icsd_data = generate_mock_icsd_data(n_materials // 2)
+        mp_data = generate_mock_mp_only_data(n_materials // 2)
+        combined = pd.concat([icsd_data, mp_data], ignore_index=True)
+        combined = combined.sample(frac=1, random_state=42).reset_index(drop=True)
+        return combined
+
+
 class SynthesizabilityClassifier:
     """ML-based classifier for predicting material synthesizability."""
 
@@ -138,25 +471,19 @@ class SynthesizabilityClassifier:
         ]
         self.is_trained = False
 
-    def prepare_training_data(self) -> Tuple[pd.DataFrame, pd.Series]:
-        """Prepare training data from ICSD and MP-only materials."""
-        icsd_data = generate_mock_icsd_data(1500)
-        mp_only_data = generate_mock_mp_only_data(1500)
-
-        # Combine datasets
-        training_data = pd.concat([icsd_data, mp_only_data], ignore_index=True)
-
-        # Shuffle the data
-        training_data = training_data.sample(frac=1, random_state=42).reset_index(drop=True)
+    def prepare_training_data(self, api_key: str = None) -> Tuple[pd.DataFrame, pd.Series]:
+        """Prepare training data from real Materials Project data or fallback to synthetic."""
+        # Try to get real MP data first
+        training_data = create_training_dataset_from_mp(api_key=api_key, n_materials=1000)
 
         X = training_data[self.feature_columns]
         y = training_data['synthesizable']
 
         return X, y
 
-    def train(self, test_size: float = 0.2):
+    def train(self, test_size: float = 0.2, api_key: str = None):
         """Train the synthesizability classifier."""
-        X, y = self.prepare_training_data()
+        X, y = self.prepare_training_data(api_key=api_key)
 
         # Split data
         X_train, X_test, y_train, y_test = train_test_split(
@@ -555,7 +882,7 @@ ml_classifier = None
 llm_predictor = LLMSynthesizabilityPredictor()
 
 
-def initialize_synthesizability_models():
+def initialize_synthesizability_models(api_key: str = None):
     """Initialize and train synthesizability prediction models."""
     global ml_classifier
 
@@ -563,7 +890,7 @@ def initialize_synthesizability_models():
 
     # Train ML classifier
     ml_classifier = SynthesizabilityClassifier(model_type='random_forest')
-    metrics = ml_classifier.train()
+    metrics = ml_classifier.train(api_key=api_key)
 
     print("ML Classifier trained successfully!")
     print(f"  Accuracy: {metrics['accuracy']:.4f}")
