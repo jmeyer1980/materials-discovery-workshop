@@ -16,6 +16,8 @@ from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier
 from sklearn.model_selection import train_test_split, cross_val_score
 from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score
 from sklearn.preprocessing import StandardScaler
+from sklearn.calibration import calibration_curve
+from sklearn.neighbors import NearestNeighbors
 from typing import Dict, List, Tuple, Optional, Union
 import warnings
 import os
@@ -929,6 +931,10 @@ class SynthesizabilityClassifier:
             'electronegativity', 'atomic_radius', 'nsites', 'density'
         ]
         self.is_trained = False
+        # Calibration and in-distribution detection attributes
+        self.calibration_curve = None  # Will store (prob_true, prob_pred, bins)
+        self.training_features_scaled = None  # Store training data for KNN
+        self.knn_detector = None  # KNN model for in-distribution detection
 
     def prepare_training_data(self, api_key: str = None) -> Tuple[pd.DataFrame, pd.Series]:
         """Prepare training data from real Materials Project data or fallback to synthetic."""
@@ -941,7 +947,7 @@ class SynthesizabilityClassifier:
         return X, y
 
     def train(self, test_size: float = 0.2, api_key: str = None):
-        """Train the synthesizability classifier."""
+        """Train the synthesizability classifier with calibration and in-distribution detection."""
         X, y = self.prepare_training_data(api_key=api_key)
 
         # Split data
@@ -976,6 +982,18 @@ class SynthesizabilityClassifier:
         # Train model
         self.model.fit(X_train_scaled, y_train)
 
+        # Store training data for in-distribution detection
+        self.training_features_scaled = X_train_scaled
+
+        # Set up KNN detector for in-distribution detection
+        self.knn_detector = NearestNeighbors(n_neighbors=5, algorithm='auto')
+        self.knn_detector.fit(X_train_scaled)
+
+        # Compute calibration curve
+        y_test_proba = self.model.predict_proba(X_test_scaled)[:, 1]
+        prob_true, prob_pred = calibration_curve(y_test, y_test_proba, n_bins=10, strategy='uniform')
+        self.calibration_curve = (prob_true, prob_pred)
+
         # Evaluate
         y_pred = self.model.predict(X_test_scaled)
         y_pred_proba = self.model.predict_proba(X_test_scaled)[:, 1]
@@ -997,7 +1015,7 @@ class SynthesizabilityClassifier:
         return metrics
 
     def predict(self, materials_df: pd.DataFrame) -> pd.DataFrame:
-        """Predict synthesizability for new materials."""
+        """Predict synthesizability for new materials with calibration and in-distribution detection."""
         if not self.is_trained:
             raise ValueError("Model must be trained before making predictions")
 
@@ -1019,6 +1037,45 @@ class SynthesizabilityClassifier:
         results_df['synthesizability_prediction'] = predictions
         results_df['synthesizability_probability'] = probabilities
         results_df['synthesizability_confidence'] = np.abs(probabilities - 0.5) * 2  # 0-1 scale
+
+        # Add calibration flags based on deviation from perfect calibration
+        if self.calibration_curve is not None:
+            prob_true, prob_pred = self.calibration_curve
+            # For each probability, check how well it aligns with calibration curve
+            calibration_errors = []
+            for prob in probabilities:
+                # Find the closest bin and check calibration error
+                bin_idx = np.argmin(np.abs(prob_pred - prob))
+                if bin_idx < len(prob_true):
+                    expected_prob = prob_true[bin_idx]
+                    error = abs(prob - expected_prob)
+                    calibration_errors.append(error)
+                else:
+                    calibration_errors.append(0.0)  # Default if no calibration data
+
+            calibration_errors = np.array(calibration_errors)
+
+            # Classify calibration status
+            results_df['calibration_status'] = np.where(
+                calibration_errors < 0.1, 'well-calibrated',
+                np.where(calibration_errors < 0.2, 'overconfident', 'underconfident')
+            )
+
+        # Add in-distribution detection using KNN distances
+        if self.knn_detector is not None:
+            # Calculate distances to k nearest neighbors in training set
+            distances, _ = self.knn_detector.kneighbors(X_pred_scaled, n_neighbors=5)
+            # Use average distance to 5 nearest neighbors as in-distribution metric
+            nn_distances = np.mean(distances, axis=1)
+
+            # Classify as in-distribution or out-distribution
+            # Use training data distance distribution to set threshold
+            train_distances, _ = self.knn_detector.kneighbors(self.training_features_scaled, n_neighbors=5)
+            train_nn_distances = np.mean(train_distances, axis=1)
+            distance_threshold = np.percentile(train_nn_distances, 95)  # 95th percentile as threshold
+
+            results_df['nn_distance'] = nn_distances
+            results_df['in_distribution'] = np.where(nn_distances <= distance_threshold, 'in-dist', 'out-dist')
 
         return results_df
 
