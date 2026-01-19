@@ -628,6 +628,15 @@ def create_gradio_interface():
             # Calculate priorities
             priority_df = calculate_synthesis_priority(results_df)
 
+            # Add weight percent and feedstock calculations
+            try:
+                from synthesizability_predictor import add_composition_analysis_to_dataframe
+                results_df = add_composition_analysis_to_dataframe(results_df)
+            except ImportError:
+                print("Warning: Could not import composition analysis functions")
+                results_df['wt%'] = 'N/A'
+                results_df['feedstock_g_per_100g'] = 'N/A'
+
             # Create experimental workflow
             workflow_df = create_experimental_workflow(results_df, top_n=10)
 
@@ -843,6 +852,101 @@ def create_gradio_interface():
                     wrap=True
                 )
 
+            with gr.TabItem("📥 CSV Export"):
+                gr.Markdown("### Export Materials Data for Lab Use")
+                gr.Markdown("""
+                Download a CSV file containing all generated materials with composition details,
+                including atomic percentages (at%), weight percentages (wt%), and feedstock masses
+                for preparing 100g batches in the laboratory.
+
+                **CSV Columns Include:**
+                - `formula`: Chemical formula
+                - `at%`: Atomic percentages (original compositions)
+                - `wt%`: Weight percentages calculated from atomic composition
+                - `feedstock_g_per_100g`: Exact masses needed for 100g batch
+                - All other analysis results
+                """)
+
+                csv_export_info = gr.Markdown("""
+                **Example Usage:**
+                For material Al₀.₅Ti₀.₅, the CSV will show:
+                - at%: Al: 50.0%, Ti: 50.0%
+                - wt%: Al: 51.0%, Ti: 49.0%
+                - feedstock_g_per_100g: 51.0g Al, 49.0g Ti
+
+                This allows metallurgists to immediately weigh out ingredients for synthesis!
+                """)
+
+                csv_download = gr.File(label="Download Materials CSV")
+
+        # Function to prepare CSV export
+        def prepare_csv_export(results_df):
+            """Prepare CSV data for download with all required columns."""
+            if results_df.empty:
+                return None
+
+            # Prepare CSV columns as specified in requirements
+            csv_data = results_df.copy()
+
+            # Create at% column (atomic percentages)
+            def format_atomic_percent(row):
+                elements = []
+                if row.get('element_1') and row.get('composition_1', 0) > 0:
+                    elements.append(f"{row['element_1']}: {row['composition_1']*100:.1f}%")
+                if row.get('element_2') and row.get('composition_2', 0) > 0:
+                    elements.append(f"{row['element_2']}: {row['composition_2']*100:.1f}%")
+                if row.get('element_3') and row.get('composition_3', 0) > 0:
+                    elements.append(f"{row['element_3']}: {row['composition_3']*100:.1f}%")
+                return "; ".join(elements)
+
+            csv_data['at%'] = csv_data.apply(format_atomic_percent, axis=1)
+
+            # Select and order columns for CSV export
+            export_columns = [
+                'formula', 'at%', 'wt%', 'feedstock_g_per_100g',
+                'thermodynamic_stability_score', 'thermodynamic_stability_category',
+                'ensemble_probability', 'ensemble_confidence', 'ensemble_prediction',
+                'energy_above_hull', 'formation_energy_per_atom', 'density',
+                'melting_point', 'band_gap', 'electronegativity', 'atomic_radius',
+                'nsites', 'element_1', 'element_2', 'element_3',
+                'composition_1', 'composition_2', 'composition_3'
+            ]
+
+            # Only include columns that exist
+            available_columns = [col for col in export_columns if col in csv_data.columns]
+            csv_export_df = csv_data[available_columns]
+
+            # Create temporary CSV file
+            import tempfile
+            import os
+            temp_file = tempfile.NamedTemporaryFile(mode='w', suffix='.csv', delete=False)
+            csv_export_df.to_csv(temp_file.name, index=False)
+            temp_file.close()
+
+            return temp_file.name
+
+        # Connect CSV export to generation function
+        def generate_with_csv(latent_dim, epochs, num_samples, available_equipment):
+            """Generate materials and prepare CSV export."""
+            results = generate_and_analyze(latent_dim, epochs, num_samples, available_equipment)
+
+            # Extract results_df from the tuple (it's the 3rd element)
+            if len(results) >= 3 and isinstance(results[2], pd.DataFrame):
+                results_df = results[2].data if hasattr(results[2], 'data') else results[2]
+                csv_path = prepare_csv_export(results_df)
+            else:
+                csv_path = None
+
+            # Return all original results plus CSV path
+            return results + (csv_path,)
+
+        # Update the button to use the new function
+        generate_btn.click(
+            fn=generate_with_csv,
+            inputs=[latent_dim, epochs, num_samples, available_equipment],
+            outputs=[summary_output, plot_output, materials_table, priority_table, workflow_table, cba_table, methods_table, csv_download]
+        )
+
         gr.Markdown("""
         ### How it Works
         1. **VAE Training**: A Variational Autoencoder learns patterns from existing materials data
@@ -865,13 +969,6 @@ def create_gradio_interface():
         - **Ensemble Method**: Weighted combination of ML and expert predictions for experimental feasibility
         - **Priority Scoring**: Multi-criteria optimization (thermodynamic stability, experimental synthesizability, novelty, ease)
         """)
-
-        # Connect the interface
-        generate_btn.click(
-            fn=generate_and_analyze,
-            inputs=[latent_dim, epochs, num_samples, available_equipment],
-            outputs=[summary_output, plot_output, materials_table, priority_table, workflow_table, cba_table, methods_table]
-        )
 
     return interface
 
