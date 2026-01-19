@@ -56,8 +56,18 @@ def prepare_lab_ready_csv(predictions_df: pd.DataFrame,
     Returns:
         Path to the generated CSV file
     """
-    # Create copy for processing
+    # Create copy for processing and ensure all columns are properly typed
     csv_df = predictions_df.copy()
+
+    # Ensure numeric columns are properly typed
+    numeric_columns = [
+        'energy_above_hull', 'ensemble_probability', 'ensemble_confidence',
+        'nn_distance', 'synthesis_priority_rank'
+    ]
+
+    for col in numeric_columns:
+        if col in csv_df.columns:
+            csv_df[col] = pd.to_numeric(csv_df[col], errors='coerce')
 
     # Generate timestamp for filename
     timestamp = format_timestamp()
@@ -96,14 +106,26 @@ def prepare_lab_ready_csv(predictions_df: pd.DataFrame,
     # Stability information
     csv_df['Stability'] = csv_df.get('thermodynamic_stability_category', 'unknown')
 
-    # Energy above hull
-    csv_df['E_hull'] = csv_df.get('energy_above_hull', 0).round(4)
+    # Energy above hull - ensure it's a pandas Series before fillna
+    e_hull_val = csv_df.get('energy_above_hull', 0)
+    if hasattr(e_hull_val, 'fillna'):
+        csv_df['E_hull'] = e_hull_val.fillna(0).round(4)
+    else:
+        csv_df['E_hull'] = pd.Series([float(e_hull_val) if e_hull_val != 0 else 0.0] * len(csv_df)).round(4)
 
-    # Synthesis probability
-    csv_df['SynthProb'] = csv_df.get('ensemble_probability', 0).round(4)
+    # Synthesis probability - ensure it's a pandas Series before fillna
+    synth_prob_val = csv_df.get('ensemble_probability', 0)
+    if hasattr(synth_prob_val, 'fillna'):
+        csv_df['SynthProb'] = synth_prob_val.fillna(0).round(4)
+    else:
+        csv_df['SynthProb'] = pd.Series([float(synth_prob_val) if synth_prob_val != 0 else 0.0] * len(csv_df)).round(4)
 
-    # ML confidence
-    csv_df['MLConf'] = csv_df.get('ensemble_confidence', 0).round(4)
+    # ML confidence - ensure it's a pandas Series before fillna
+    ml_conf_val = csv_df.get('ensemble_confidence', 0)
+    if hasattr(ml_conf_val, 'fillna'):
+        csv_df['MLConf'] = ml_conf_val.fillna(0).round(4)
+    else:
+        csv_df['MLConf'] = pd.Series([float(ml_conf_val) if ml_conf_val != 0 else 0.0] * len(csv_df)).round(4)
 
     # Recommended synthesis method, temperature, atmosphere
     csv_df['Method'] = 'Unknown'
@@ -140,7 +162,7 @@ def prepare_lab_ready_csv(predictions_df: pd.DataFrame,
 
     # In-distribution status and nearest neighbor distance
     csv_df['InDist'] = csv_df.get('in_distribution', 'unknown')
-    csv_df['NNDistance'] = csv_df.get('nn_distance', 0).round(4)
+    csv_df['NNDistance'] = pd.to_numeric(csv_df.get('nn_distance', 0), errors='coerce').fillna(0).round(4)
 
     # Notes column with additional information
     def create_notes(row):
