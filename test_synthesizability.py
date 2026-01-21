@@ -4,14 +4,13 @@ Test script for synthesizability prediction functionality
 This demonstrates the complete end-to-end materials discovery pipeline
 """
 
-import pandas as pd
-import numpy as np
-from typing import Dict, List, Tuple, Optional, Union
-import warnings
-warnings.filterwarnings('ignore')
-
 # Import synthesizability prediction classes from the dedicated module
 from synthesizability_predictor import SynthesizabilityClassifier, LLMSynthesizabilityPredictor
+
+import pandas as pd
+import numpy as np
+import warnings
+warnings.filterwarnings('ignore')
 
 # Mock ICSD data for demonstration (in practice, this would come from actual ICSD database)
 def generate_mock_icsd_data(n_samples: int = 1000) -> pd.DataFrame:
@@ -195,6 +194,11 @@ def test_refactor_consistency():
     ml_classifier = SynthesizabilityClassifier()
     ml_metrics = ml_classifier.train()
     ml_predictions = ml_classifier.predict(test_materials)
+
+    # Validate training metrics are reasonable
+    assert 'accuracy' in ml_metrics, "Training metrics should include accuracy"
+    assert ml_metrics['accuracy'] > 0.5, f"Poor training accuracy: {ml_metrics['accuracy']:.3f}"
+    assert ml_classifier.is_trained, "Classifier should be marked as trained"
 
     # Test LLM predictor
     llm_predictor = LLMSynthesizabilityPredictor()

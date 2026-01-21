@@ -7,19 +7,17 @@ This test suite validates real MP API integration without mocking,
 ensuring the system works with actual materials data from MP.
 """
 
-import pandas as pd
-import numpy as np
-import os
-from typing import Dict, List, Tuple
-import warnings
-warnings.filterwarnings('ignore')
-
 # Import actual MP integration modules
 from materials_discovery_api import (
     MaterialsProjectClient, get_training_dataset, create_ml_features_from_mp_data
 )
 from synthesizability_predictor import SynthesizabilityClassifier, create_training_dataset_from_mp
 
+import pandas as pd
+import numpy as np
+import os
+import warnings
+warnings.filterwarnings('ignore')
 
 def setup_mp_client():
     """Set up MP client for testing."""
@@ -167,27 +165,26 @@ def test_composition_analysis_real_data(client):
     # Get materials with element data
     materials = client.get_binary_alloys(limit_per_pair=3)
 
-    # Create some test materials with composition info
-    test_materials = pd.DataFrame([
-        {
-            'element_1': 'Al',
-            'element_2': 'Ti',
-            'composition_1': 0.5,
-            'composition_2': 0.5,
-            'composition_3': 0.0,
-            'density': 4.0,
-            'energy_above_hull': 0.02
-        },
-        {
-            'element_1': 'Fe',
-            'element_2': 'Co',
-            'composition_1': 0.6,
-            'composition_2': 0.4,
-            'composition_3': 0.0,
-            'density': 8.0,
-            'energy_above_hull': 0.05
-        }
-    ])
+    # Use real MP materials data, but add required composition fields if missing
+    test_materials = materials.copy()
+
+    # Ensure we have the required composition columns for the analysis
+    if 'element_1' not in test_materials.columns:
+        # Extract elements from the elements list if available
+        test_materials['element_1'] = test_materials['elements'].str[0] if 'elements' in test_materials.columns else 'Al'
+        test_materials['element_2'] = test_materials['elements'].str[1] if 'elements' in test_materials.columns and test_materials['elements'].str.len() > 1 else 'Ti'
+        test_materials['element_3'] = None
+
+    # Add composition data if missing (simplified 50-50 binary)
+    if 'composition_1' not in test_materials.columns:
+        test_materials['composition_1'] = 0.5
+        test_materials['composition_2'] = 0.5
+        test_materials['composition_3'] = 0.0
+
+    # Ensure we have at least some materials
+    if test_materials.empty:
+        print("No materials available for composition analysis test")
+        return
 
     # Test composition analysis
     analyzed = add_composition_analysis_to_dataframe(test_materials)
@@ -313,6 +310,11 @@ def test_in_distribution_detection(client):
 
     assert classifier.is_trained, "Classifier not trained"
 
+    # Validate training metrics are reasonable
+    assert 'accuracy' in metrics, "Missing accuracy metric"
+    assert metrics['accuracy'] > 0.5, f"Poor training accuracy: {metrics['accuracy']:.3f}"
+    assert 'cv_mean' in metrics, "Missing cross-validation metric"
+
     # Test with materials similar to training data
     test_materials = pd.DataFrame([
         {
@@ -390,7 +392,14 @@ def run_mp_integration_tests():
     print(f"📊 MP INTEGRATION TEST RESULTS: {tests_passed}/{len(test_functions)} passed")
     print(f"{'='*50}")
 
-    if tests_passed >= len(test_functions) * 0.8:  # 80% success rate
+    # Validate we ran the expected number of tests
+    assert tests_passed <= total_tests, f"Too many tests passed: {tests_passed} > {total_tests}"
+    assert len(test_functions) == total_tests, f"Test count mismatch: {len(test_functions)} != {total_tests}"
+
+    success_rate = tests_passed / total_tests
+    print(f"Success rate: {success_rate:.1%} ({tests_passed}/{total_tests} tests passed)")
+
+    if success_rate >= 0.8:  # 80% success rate
         print("✅ MP API INTEGRATION TESTS SUCCESSFUL")
         return True
     else:

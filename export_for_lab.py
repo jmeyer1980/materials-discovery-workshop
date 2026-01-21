@@ -8,11 +8,10 @@ full model context and limitations.
 """
 
 import pandas as pd
-import numpy as np
 import matplotlib.pyplot as plt
 from datetime import datetime
 import os
-from typing import Dict, List, Tuple, Optional
+from typing import Dict, List, Tuple
 import warnings
 import yaml
 warnings.filterwarnings('ignore')
@@ -224,9 +223,6 @@ def prepare_lab_ready_csv(predictions_df: pd.DataFrame,
 
     # Ensure output directory exists
     os.makedirs(output_dir, exist_ok=True)
-
-    # Prepare CSV columns as specified in requirements
-    csv_columns = []
 
     # Basic material identifiers
     csv_df['ID'] = csv_df.get('id', csv_df.get('formula', [f'material_{i+1}' for i in range(len(csv_df))]))
