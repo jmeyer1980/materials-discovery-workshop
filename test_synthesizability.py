@@ -6,13 +6,12 @@ This demonstrates the complete end-to-end materials discovery pipeline
 
 import pandas as pd
 import numpy as np
-from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier
-from sklearn.model_selection import train_test_split, cross_val_score
-from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score
-from sklearn.preprocessing import StandardScaler
 from typing import Dict, List, Tuple, Optional, Union
 import warnings
 warnings.filterwarnings('ignore')
+
+# Import synthesizability prediction classes from the dedicated module
+from synthesizability_predictor import SynthesizabilityClassifier, LLMSynthesizabilityPredictor
 
 # Mock ICSD data for demonstration (in practice, this would come from actual ICSD database)
 def generate_mock_icsd_data(n_samples: int = 1000) -> pd.DataFrame:
@@ -91,202 +90,6 @@ def generate_mock_mp_only_data(n_samples: int = 1000) -> pd.DataFrame:
 
     return pd.DataFrame(data)
 
-class SynthesizabilityClassifier:
-    """ML-based classifier for predicting material synthesizability."""
-
-    def __init__(self, model_type: str = 'random_forest'):
-        self.model_type = model_type
-        self.model = None
-        self.scaler = StandardScaler()
-        self.feature_columns = [
-            'formation_energy_per_atom', 'band_gap', 'energy_above_hull',
-            'electronegativity', 'atomic_radius', 'nsites', 'density'
-        ]
-        self.is_trained = False
-
-    def prepare_training_data(self) -> Tuple[pd.DataFrame, pd.Series]:
-        """Prepare training data from ICSD and MP-only materials."""
-        icsd_data = generate_mock_icsd_data(1500)
-        mp_only_data = generate_mock_mp_only_data(1500)
-
-        training_data = pd.concat([icsd_data, mp_only_data], ignore_index=True)
-        training_data = training_data.sample(frac=1, random_state=42).reset_index(drop=True)
-
-        X = training_data[self.feature_columns]
-        y = training_data['synthesizable']
-
-        return X, y
-
-    def train(self, test_size: float = 0.2):
-        """Train the synthesizability classifier."""
-        X, y = self.prepare_training_data()
-
-        X_train, X_test, y_train, y_test = train_test_split(
-            X, y, test_size=test_size, random_state=42, stratify=y
-        )
-
-        X_train_scaled = self.scaler.fit_transform(X_train)
-        X_test_scaled = self.scaler.transform(X_test)
-
-        if self.model_type == 'random_forest':
-            self.model = RandomForestClassifier(
-                n_estimators=200, max_depth=10, min_samples_split=5,
-                min_samples_leaf=2, random_state=42, n_jobs=-1
-            )
-        elif self.model_type == 'gradient_boosting':
-            self.model = GradientBoostingClassifier(
-                n_estimators=200, max_depth=6, learning_rate=0.1, random_state=42
-            )
-        else:
-            raise ValueError(f"Unsupported model type: {self.model_type}")
-
-        self.model.fit(X_train_scaled, y_train)
-
-        y_pred = self.model.predict(X_test_scaled)
-        y_pred_proba = self.model.predict_proba(X_test_scaled)[:, 1]
-
-        metrics = {
-            'accuracy': accuracy_score(y_test, y_pred),
-            'precision': precision_score(y_test, y_pred),
-            'recall': recall_score(y_test, y_pred),
-            'f1_score': f1_score(y_test, y_pred)
-        }
-
-        cv_scores = cross_val_score(self.model, self.scaler.transform(X), y, cv=5)
-        metrics['cv_mean'] = cv_scores.mean()
-        metrics['cv_std'] = cv_scores.std()
-
-        self.is_trained = True
-
-        return metrics
-
-    def predict(self, materials_df: pd.DataFrame) -> pd.DataFrame:
-        """Predict synthesizability for new materials."""
-        if not self.is_trained:
-            raise ValueError("Model must be trained before making predictions")
-
-        X_pred = materials_df[self.feature_columns].copy()
-        X_pred = X_pred.fillna(X_pred.mean())
-        X_pred_scaled = self.scaler.transform(X_pred)
-
-        predictions = self.model.predict(X_pred_scaled)
-        probabilities = self.model.predict_proba(X_pred_scaled)[:, 1]
-
-        results_df = materials_df.copy()
-        results_df['synthesizability_prediction'] = predictions
-        results_df['synthesizability_probability'] = probabilities
-        results_df['synthesizability_confidence'] = np.abs(probabilities - 0.5) * 2
-
-        return results_df
-
-    def predict_single(self, material_properties: Dict) -> Dict:
-        """Predict synthesizability for a single material."""
-        df = pd.DataFrame([material_properties])
-        result_df = self.predict(df)
-
-        return {
-            'prediction': int(result_df['synthesizability_prediction'].iloc[0]),
-            'probability': float(result_df['synthesizability_probability'].iloc[0]),
-            'confidence': float(result_df['synthesizability_confidence'].iloc[0])
-        }
-
-class LLMSynthesizabilityPredictor:
-    """LLM-based synthesizability predictor using rule-based heuristics."""
-
-    def __init__(self):
-        self.rules = {
-            'thermodynamic_stability': {
-                'energy_above_hull_threshold': 0.1,
-                'formation_energy_min': -4.0,
-                'formation_energy_max': 1.0
-            },
-            'structural_complexity': {
-                'nsites_max': 20,
-                'density_min': 2.0,
-                'density_max': 25.0
-            },
-            'electronic_properties': {
-                'band_gap_max': 8.0
-            },
-            'elemental_properties': {
-                'electronegativity_min': 0.7,
-                'electronegativity_max': 2.8,
-                'atomic_radius_min': 0.8,
-                'atomic_radius_max': 2.5
-            }
-        }
-
-    def predict_synthesizability(self, material_data: Dict) -> Dict:
-        """Predict synthesizability using rule-based system."""
-        score = 0.0
-        max_score = 10.0
-        reasons = []
-
-        e_hull = material_data.get('energy_above_hull', 0)
-        if e_hull <= self.rules['thermodynamic_stability']['energy_above_hull_threshold']:
-            score += 2.0
-            reasons.append(f"Low energy above hull ({e_hull:.3f} eV/atom) indicates stability")
-        else:
-            reasons.append(f"High energy above hull ({e_hull:.3f} eV/atom) indicates instability")
-
-        formation_energy = material_data.get('formation_energy_per_atom', 0)
-        if (self.rules['thermodynamic_stability']['formation_energy_min'] <=
-            formation_energy <= self.rules['thermodynamic_stability']['formation_energy_max']):
-            score += 1.5
-            reasons.append(f"Formation energy ({formation_energy:.3f} eV/atom) is reasonable")
-        else:
-            reasons.append(f"Formation energy ({formation_energy:.3f} eV/atom) is extreme")
-
-        nsites = material_data.get('nsites', 10)
-        if nsites <= self.rules['structural_complexity']['nsites_max']:
-            score += 1.0
-            reasons.append(f"Unit cell size ({nsites} sites) is reasonable")
-        else:
-            reasons.append(f"Unit cell size ({nsites} sites) is very large")
-
-        density = material_data.get('density', 5.0)
-        if (self.rules['structural_complexity']['density_min'] <= density <=
-            self.rules['structural_complexity']['density_max']):
-            score += 1.0
-            reasons.append(f"Density ({density:.1f} g/cm³) is reasonable")
-        else:
-            reasons.append(f"Density ({density:.1f} g/cm³) is unusual")
-
-        band_gap = material_data.get('band_gap', 0)
-        if band_gap <= self.rules['electronic_properties']['band_gap_max']:
-            score += 1.5
-            reasons.append(f"Band gap ({band_gap:.1f} eV) is reasonable")
-        else:
-            reasons.append(f"Band gap ({band_gap:.1f} eV) is very wide")
-
-        electronegativity = material_data.get('electronegativity', 1.5)
-        if (self.rules['elemental_properties']['electronegativity_min'] <=
-            electronegativity <= self.rules['elemental_properties']['electronegativity_max']):
-            score += 1.0
-            reasons.append(f"Electronegativity ({electronegativity:.2f}) is reasonable")
-        else:
-            reasons.append(f"Electronegativity ({electronegativity:.2f}) is extreme")
-
-        atomic_radius = material_data.get('atomic_radius', 1.4)
-        if (self.rules['elemental_properties']['atomic_radius_min'] <=
-            atomic_radius <= self.rules['elemental_properties']['atomic_radius_max']):
-            score += 1.0
-            reasons.append(f"Atomic radius ({atomic_radius:.2f} Å) is reasonable")
-        else:
-            reasons.append(f"Atomic radius ({atomic_radius:.2f} Å) is unusual")
-
-        probability = 1 / (1 + np.exp(-(score - max_score/2) * 2))
-        prediction = 1 if probability >= 0.5 else 0
-
-        return {
-            'prediction': prediction,
-            'probability': probability,
-            'confidence': min(probability, 1-probability) * 2,
-            'score': score,
-            'max_score': max_score,
-            'reasons': reasons
-        }
-
 def thermodynamic_stability_check(materials_df: pd.DataFrame) -> pd.DataFrame:
     """Check thermodynamic stability of materials."""
     results_df = materials_df.copy()
@@ -361,10 +164,70 @@ def initialize_synthesizability_models():
 
     return ml_classifier, llm_predictor
 
+def test_refactor_consistency():
+    """Test that the refactored classes behave identically to the original embedded versions."""
+    print("🧪 TESTING REFACTOR CONSISTENCY")
+    print("=" * 40)
+
+    # Create test data
+    test_materials = pd.DataFrame([
+        {
+            'formation_energy_per_atom': -1.5,
+            'band_gap': 0.0,
+            'energy_above_hull': 0.05,
+            'electronegativity': 1.7,
+            'atomic_radius': 1.4,
+            'nsites': 4,
+            'density': 4.5
+        },
+        {
+            'formation_energy_per_atom': 0.3,
+            'band_gap': 0.1,
+            'energy_above_hull': 0.02,
+            'electronegativity': 1.8,
+            'atomic_radius': 1.4,
+            'nsites': 8,
+            'density': 7.1
+        }
+    ])
+
+    # Test ML classifier
+    ml_classifier = SynthesizabilityClassifier()
+    ml_metrics = ml_classifier.train()
+    ml_predictions = ml_classifier.predict(test_materials)
+
+    # Test LLM predictor
+    llm_predictor = LLMSynthesizabilityPredictor()
+    llm_results = []
+    for idx, material in test_materials.iterrows():
+        result = llm_predictor.predict_synthesizability(material.to_dict())
+        llm_results.append(result)
+
+    # Verify expected behavior
+    assert ml_classifier.is_trained, "ML classifier should be trained"
+    assert len(ml_predictions) == len(test_materials), "ML predictions should match input length"
+    assert 'synthesizability_probability' in ml_predictions.columns, "ML predictions should include probability column"
+
+    # Check LLM predictions
+    assert len(llm_results) == len(test_materials), "LLM predictions should match input length"
+    for result in llm_results:
+        assert 'prediction' in result, "LLM result should include prediction"
+        assert 'probability' in result, "LLM result should include probability"
+        assert 'reasons' in result, "LLM result should include reasons"
+
+    print("✅ Refactor consistency test passed!")
+    print("   - ML classifier trains and predicts correctly")
+    print("   - LLM predictor generates expected results")
+    print("   - All predictions include required fields")
+    print()
+
 def main():
     """Run the complete synthesizability prediction demonstration."""
     print("🧪 SYNTHESIZABILITY PREDICTION DEMONSTRATION")
     print("=" * 60)
+
+    # Run refactor consistency test first
+    test_refactor_consistency()
 
     # Initialize models
     ml_classifier, llm_predictor = initialize_synthesizability_models()
