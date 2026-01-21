@@ -19,11 +19,10 @@ warnings.filterwarnings('ignore')
 # Try to import reportlab for PDF generation, fallback to matplotlib
 try:
     from reportlab.lib import colors
-    from reportlab.lib.pagesizes import letter, A4
+    from reportlab.lib.pagesizes import A4
     from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-    from reportlab.lib.units import inch
-    from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, Image
-    from reportlab.lib.enums import TA_LEFT, TA_CENTER, TA_RIGHT
+    from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
+    from reportlab.lib.enums import TA_LEFT, TA_CENTER
     REPORTLAB_AVAILABLE = True
 except ImportError:
     REPORTLAB_AVAILABLE = False
@@ -31,10 +30,7 @@ except ImportError:
 
 # Import required functions from synthesizability_predictor
 try:
-    from synthesizability_predictor import (
-        cost_benefit_analysis, recommend_synthesis_method,
-        calculate_thermodynamic_stability_score, SYNTHESIS_METHODS
-    )
+    from synthesizability_predictor import cost_benefit_analysis
 except ImportError:
     print("Warning: Could not import synthesizability_predictor functions")
 
