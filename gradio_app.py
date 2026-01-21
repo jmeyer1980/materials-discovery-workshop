@@ -742,8 +742,9 @@ def create_gradio_interface():
     # Initialize synthesis methods reference table
     methods_ref_df = get_synthesis_methods_reference()
 
-    # Global variable to store ML metrics for export functions
+    # Global variables to store data for export functions
     global_ml_metrics = None
+    global_full_results_df = None  # Store full internal DataFrame for CSV export
 
     def generate_and_analyze(api_key, latent_dim, epochs, num_samples, available_equipment):
         """Main function to generate materials and run analysis."""
@@ -918,7 +919,7 @@ def create_gradio_interface():
 
             plt.tight_layout()
 
-            return summary_text, fig, results_table, priority_table, workflow_table, cba_display, methods_ref_df, fig2
+            return summary_text, fig, results_table, priority_table, workflow_table, cba_display, methods_ref_df, fig2, results_df
 
         except Exception as e:
             error_msg = f"Error during generation: {str(e)}"
@@ -1219,12 +1220,23 @@ def create_gradio_interface():
 
         # Function to prepare CSV export
         def prepare_csv_export(results_df):
-            """Prepare CSV data for download with all required columns."""
-            if results_df.empty:
-                return None
+            """Prepare CSV data for download with all required columns from global full DataFrame."""
+            global global_full_results_df
 
-            # Prepare CSV columns as specified in requirements
-            csv_data = results_df.copy()
+            # Use the full internal DataFrame if available, otherwise fall back to the display DataFrame
+            if global_full_results_df is not None and not global_full_results_df.empty:
+                csv_data = global_full_results_df.copy()
+                print(f"Using full internal DataFrame with {len(csv_data.columns)} columns for CSV export")
+            else:
+                # Fallback to the display DataFrame
+                if hasattr(results_df, 'data'):
+                    csv_data = results_df.data.copy()
+                else:
+                    csv_data = results_df.copy()
+                print(f"Using display DataFrame with {len(csv_data.columns)} columns for CSV export")
+
+            if csv_data.empty:
+                return None
 
             # Create at% column (atomic percentages)
             def format_atomic_percent(row):
@@ -1261,6 +1273,7 @@ def create_gradio_interface():
             csv_export_df.to_csv(temp_file.name, index=False)
             temp_file.close()
 
+            print(f"CSV export created with {len(available_columns)} columns: {available_columns}")
             return temp_file.name
 
         # Function for lab-ready export
@@ -1290,11 +1303,16 @@ def create_gradio_interface():
 
         # Generation with global variable storage
         def generate_and_store_global(api_key, latent_dim, epochs, num_samples, available_equipment):
-            """Generate materials and store ML metrics globally for export functions."""
-            global global_ml_metrics
+            """Generate materials and store ML metrics and full results DataFrame globally for export functions."""
+            global global_ml_metrics, global_full_results_df
             results = generate_and_analyze(api_key, latent_dim, epochs, num_samples, available_equipment)
 
-            # Extract results_df from the tuple (it's the 3rd element) for CSV export
+            # Store the full internal results DataFrame globally (it's the last element in results)
+            if len(results) >= 9 and isinstance(results[8], pd.DataFrame):
+                global_full_results_df = results[8].copy()  # Full results DataFrame
+                print(f"Stored full results DataFrame with {len(global_full_results_df.columns)} columns for CSV export")
+
+            # Generate CSV using the display table for now (will be fixed in prepare_csv_export)
             if len(results) >= 3 and isinstance(results[2], pd.DataFrame):
                 results_df = results[2].data if hasattr(results[2], 'data') else results[2]
                 csv_path = prepare_csv_export(results_df)
