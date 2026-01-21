@@ -1,0 +1,110 @@
+# Hazard Blacklist Configuration for Materials Discovery Workshop
+# Elements that pose significant safety risks in laboratory synthesis
+
+# High-risk elements that should block export unless human override is provided
+blacklist_elements:
+  - Be  # Beryllium - toxic, carcinogenic
+  - Hg  # Mercury - highly toxic, bioaccumulative
+  - Cd  # Cadmium - toxic, carcinogenic
+  - Pb  # Lead - toxic, neurotoxic
+  - As  # Arsenic - highly toxic, carcinogenic
+  - Tl  # Thallium - extremely toxic
+  - Sb  # Antimony - toxic
+  - Bi  # Bismuth - low toxicity but can be problematic in some contexts
+  - Po  # Polonium - radioactive, extremely toxic
+  - Ra  # Radium - radioactive
+  - Rn  # Radon - radioactive gas
+  - Th  # Thorium - radioactive
+  - U   # Uranium - radioactive, toxic
+  - Pu  # Plutonium - radioactive, extremely hazardous
+
+# Mitigation guidance for each blacklisted element
+mitigation_guidance:
+  Be: |
+    **Beryllium (Be) - EXTREME HAZARD**
+    - **Toxicity**: Highly toxic, causes chronic beryllium disease (CBD) and lung cancer
+    - **Risk Level**: Cannot be safely handled in most laboratory settings
+    - **Required Controls**: Full containment, respiratory protection, specialized facilities
+    - **Recommendation**: Do not synthesize. Use alternative materials without beryllium.
+    - **Override Requirements**: PI approval, radiation safety officer clearance, specialized containment plan
+
+  Hg: |
+    **Mercury (Hg) - HIGH TOXICITY**
+    - **Toxicity**: Neurotoxic, bioaccumulative, affects nervous system and kidneys
+    - **Risk Level**: Extremely dangerous in vapor form, persistent environmental contaminant
+    - **Required Controls**: Fume hood, mercury vapor detector, proper waste disposal
+    - **Recommendation**: Avoid unless mercury-specific properties are absolutely required
+    - **Override Requirements**: Environmental health & safety approval, mercury handling certification
+
+  Cd: |
+    **Cadmium (Cd) - CARCINOGENIC**
+    - **Toxicity**: Carcinogenic, causes bone and kidney damage, long half-life in body
+    - **Risk Level**: OSHA regulated carcinogen, requires strict controls
+    - **Required Controls**: Local exhaust ventilation, respiratory protection, biological monitoring
+    - **Recommendation**: Substitute with less toxic elements where possible
+    - **Override Requirements**: Carcinogen handling permit, medical surveillance program
+
+  Pb: |
+    **Lead (Pb) - NEUROTOXIC**
+    - **Toxicity**: Neurotoxic, especially to developing brains, bioaccumulative
+    - **Risk Level**: Particularly dangerous for pregnant workers and children
+    - **Required Controls**: Engineering controls, PPE, air monitoring, medical surveillance
+    - **Recommendation**: Use lead-free alternatives for most applications
+    - **Override Requirements**: Lead safety program compliance, blood lead monitoring
+
+  As: |
+    **Arsenic (As) - HIGHLY TOXIC**
+    - **Toxicity**: Carcinogenic, causes skin lesions, cardiovascular disease
+    - **Risk Level**: Extremely toxic, multiple routes of exposure
+    - **Required Controls**: Containment, PPE, air monitoring, waste treatment
+    - **Recommendation**: Avoid arsenic-containing materials unless essential
+    - **Override Requirements**: Toxic substances handling certification, environmental permits
+
+  Tl: |
+    **Thallium (Tl) - EXTREMELY TOXIC**
+    - **Toxicity**: Extremely toxic, causes hair loss, nerve damage, death
+    - **Risk Level**: One of the most toxic elements, no safe threshold
+    - **Required Controls**: Full containment, specialized handling procedures
+    - **Recommendation**: Never synthesize thallium compounds in standard labs
+    - **Override Requirements**: Extremely restricted - requires specialized toxicology approval
+
+  Sb: |
+    **Antimony (Sb) - TOXIC**
+    - **Toxicity**: Causes respiratory irritation, potential carcinogen
+    - **Risk Level**: Moderate toxicity, requires ventilation controls
+    - **Required Controls**: Fume hood, respiratory protection
+    - **Recommendation**: Use with caution, monitor exposure
+    - **Override Requirements**: Industrial hygiene approval
+
+  Bi: |
+    **Bismuth (Bi) - LOW TOXICITY**
+    - **Toxicity**: Generally low toxicity, but can cause bismuth encephalopathy in rare cases
+    - **Risk Level**: Low risk for most applications
+    - **Required Controls**: Standard laboratory practices
+    - **Recommendation**: Generally safe, but monitor for unusual exposures
+    - **Override Requirements**: Standard safety protocols
+
+# Radioactive elements (additional restrictions)
+radioactive_elements:
+  - Po
+  - Ra
+  - Rn
+  - Th
+  - U
+  - Pu
+
+# Override requirements for human-reviewed exports
+human_override_requirements:
+  - Written risk assessment by principal investigator
+  - Safety data sheet review and approval
+  - Appropriate PPE and engineering controls identified
+  - Waste disposal plan approved
+  - Emergency response procedures documented
+  - Training records for all personnel verified
+
+# Default safety thresholds (can be adjusted by SAFE MODE)
+safety_thresholds:
+  ensemble_probability_min: 0.8
+  thermodynamic_stability_required: "highly_stable"
+  in_distribution_required: true
+  human_override_allowed: true

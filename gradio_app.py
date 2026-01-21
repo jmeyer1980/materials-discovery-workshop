@@ -742,8 +742,9 @@ def create_gradio_interface():
     # Initialize synthesis methods reference table
     methods_ref_df = get_synthesis_methods_reference()
 
-    # Global variable to store ML metrics for export functions
+    # Global variables to store data for export functions
     global_ml_metrics = None
+    global_full_results_df = None  # Store full internal DataFrame for CSV export
 
     def generate_and_analyze(api_key, latent_dim, epochs, num_samples, available_equipment):
         """Main function to generate materials and run analysis."""
@@ -918,7 +919,7 @@ def create_gradio_interface():
 
             plt.tight_layout()
 
-            return summary_text, fig, results_table, priority_table, workflow_table, cba_display, methods_ref_df, fig2
+            return summary_text, fig, results_table, priority_table, workflow_table, cba_display, methods_ref_df, fig2, results_df
 
         except Exception as e:
             error_msg = f"Error during generation: {str(e)}"
@@ -1176,20 +1177,66 @@ def create_gradio_interface():
                 gr.Markdown("""
                 Generate comprehensive lab-ready export with CSV data and PDF report.
                 Includes all synthesis information, cost-benefit analysis, and model documentation.
+
+                **⚠️ SAFETY FIRST:** Export includes automatic safety gating to prevent laboratory accidents.
                 """)
 
+                # Safety controls
+                with gr.Row():
+                    with gr.Column():
+                        safe_mode_toggle = gr.Checkbox(
+                            value=True,
+                            label="🛡️ SAFE MODE",
+                            info="Enable conservative safety thresholds (recommended). When disabled, shows exploratory results but marks them clearly."
+                        )
+                        human_override_checkbox = gr.Checkbox(
+                            value=False,
+                            label="👤 Allow Human Override",
+                            info="Permit export of materials requiring human safety review (requires documented approval)"
+                        )
+
+                    with gr.Column():
+                        gr.Markdown("""
+                        **Safe Mode Settings:**
+                        - ✅ Ensemble probability ≥ 0.8
+                        - ✅ Thermodynamic stability = 'highly_stable' OR human override
+                        - ✅ In-distribution materials only (unless override approved)
+                        - ✅ No hazardous elements (Be, Hg, Cd, Pb, As, Tl, etc.)
+
+                        **Human Override Requirements:**
+                        - Written risk assessment by PI
+                        - Safety data sheet review
+                        - PPE and engineering controls documented
+                        - Waste disposal plan approved
+                        """)
+
                 export_button = gr.Button("🚀 Export for Synthesis", variant="primary", size="lg")
+
+                # Safety summary display
+                safety_summary_display = gr.Markdown("")
+
                 lab_csv_download = gr.File(label="Download Lab CSV")
                 lab_pdf_download = gr.File(label="Download PDF Report")
 
         # Function to prepare CSV export
         def prepare_csv_export(results_df):
-            """Prepare CSV data for download with all required columns."""
-            if results_df.empty:
-                return None
+            """Prepare CSV data for download with all required columns from global full DataFrame."""
+            global global_full_results_df
 
-            # Prepare CSV columns as specified in requirements
-            csv_data = results_df.copy()
+            # Use the full internal DataFrame if available, otherwise fall back to the display DataFrame
+            if global_full_results_df is not None and not global_full_results_df.empty:
+                csv_data = global_full_results_df.copy()
+                print(f"Using full internal DataFrame with {len(csv_data.columns)} columns for CSV export")
+            else:
+                # Fallback to the display DataFrame
+                if hasattr(results_df, 'data'):
+                    csv_data = results_df.data.copy()
+                else:
+                    csv_data = results_df.copy()
+                print(f"Using display DataFrame with {len(csv_data.columns)} columns for CSV export")
+
+            if csv_data.empty:
+                return None
 
             # Create at% column (atomic percentages)
             def format_atomic_percent(row):
@@ -1226,6 +1273,7 @@ def create_gradio_interface():
             csv_export_df.to_csv(temp_file.name, index=False)
             temp_file.close()
 
+            print(f"CSV export created with {len(available_columns)} columns: {available_columns}")
             return temp_file.name
 
         # Function for lab-ready export
@@ -1255,11 +1303,16 @@ def create_gradio_interface():
 
         # Generation with global variable storage
         def generate_and_store_global(api_key, latent_dim, epochs, num_samples, available_equipment):
-            """Generate materials and store ML metrics globally for export functions."""
-            global global_ml_metrics
+            """Generate materials and store ML metrics and full results DataFrame globally for export functions."""
+            global global_ml_metrics, global_full_results_df
             results = generate_and_analyze(api_key, latent_dim, epochs, num_samples, available_equipment)
 
-            # Extract results_df from the tuple (it's the 3rd element) for CSV export
+            # Store the full internal results DataFrame globally (it's the last element in results)
+            if len(results) >= 9 and isinstance(results[8], pd.DataFrame):
+                global_full_results_df = results[8].copy()  # Full results DataFrame
+                print(f"Stored full results DataFrame with {len(global_full_results_df.columns)} columns for CSV export")
+
+            # Generate CSV using the display table for now (will be fixed in prepare_csv_export)
             if len(results) >= 3 and isinstance(results[2], pd.DataFrame):
                 results_df = results[2].data if hasattr(results[2], 'data') else results[2]
                 csv_path = prepare_csv_export(results_df)
@@ -1275,9 +1328,9 @@ def create_gradio_interface():
             outputs=[summary_output, plot_output, materials_table, priority_table, workflow_table, cba_table, methods_table, reliability_plot, csv_download]
         )
 
-        # Function for lab export using global variable
-        def prepare_lab_export_from_table(materials_table_data):
-            """Prepare comprehensive lab export from table data using global ML metrics."""
+        # Function for lab export using global variable with safety gating
+        def prepare_lab_export_from_table(materials_table_data, safe_mode_enabled, allow_human_override):
+            """Prepare comprehensive lab export from table data using global ML metrics with safety gating."""
             global global_ml_metrics
 
             if hasattr(materials_table_data, 'data'):
@@ -1286,41 +1339,52 @@ def create_gradio_interface():
                 df = materials_table_data
 
             if hasattr(df, 'empty') and df.empty:
-                return None, None
+                return None, None, "No materials data available for export"
 
             try:
-                # For now, just return the regular CSV export path
-                # This will work while we debug the full export
-                if len(df) > 0:
-                    # Create a simple CSV file for testing
-                    import tempfile
-                    import os
-                    temp_file = tempfile.NamedTemporaryFile(mode='w', suffix='.csv', delete=False)
-                    df.head(10).to_csv(temp_file.name, index=False)  # Just first 10 rows for testing
-                    temp_file.close()
+                # Import the updated export function
+                from export_for_lab import export_for_lab
 
-                    # For PDF, create a simple text file for now
-                    temp_pdf = tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False)
-                    temp_pdf.write("PDF generation temporarily disabled for debugging\n")
-                    temp_pdf.write(f"Generated {len(df)} materials\n")
-                    temp_pdf.close()
+                # Perform export with safety gating
+                csv_path, pdf_path, safety_summary = export_for_lab(
+                    df, global_ml_metrics, ".",
+                    safe_mode=safe_mode_enabled,
+                    allow_human_override=allow_human_override
+                )
 
-                    print(f"Debug export: Created temporary files {temp_file.name}, {temp_pdf.name}")
-                    return temp_file.name, temp_pdf.name
+                # Create safety summary message
+                if safety_summary:
+                    safety_msg = f"""
+                    **Safety Export Summary:**
+                    - Total materials: {safety_summary['total_materials']}
+                    - Safe for export: {safety_summary['safe_materials']}
+                    - Requires human review: {safety_summary['human_review_materials']}
+                    - Blocked (unsafe): {safety_summary['unsafe_materials']}
+                    - Exported: {safety_summary['exported_materials']}
+                    - Safe mode: {'Enabled' if safety_summary['safe_mode_enabled'] else 'Disabled'}
+                    - Human override: {'Allowed' if safety_summary['human_override_allowed'] else 'Not allowed'}
+                    """
 
-                return None, None
+                    if safety_summary['exported_materials'] == 0:
+                        safety_msg += "\n**WARNING: No materials passed safety criteria! Export was blocked.**"
+                    elif safety_summary['unsafe_materials'] > 0:
+                        safety_msg += f"\n**Note: {safety_summary['unsafe_materials']} materials were blocked for safety reasons.**"
+                else:
+                    safety_msg = "Safety summary not available"
+
+                return csv_path, pdf_path, safety_msg
 
             except Exception as e:
                 print(f"Error in lab export: {e}")
                 import traceback
                 traceback.print_exc()
-                return None, None
+                return None, None, f"Export failed: {str(e)}"
 
         # Connect lab export button
         export_button.click(
             fn=prepare_lab_export_from_table,
-            inputs=[materials_table],
-            outputs=[lab_csv_download, lab_pdf_download]
+            inputs=[materials_table, safe_mode_toggle, human_override_checkbox],
+            outputs=[lab_csv_download, lab_pdf_download, safety_summary_display]
         )
 
         # Experimental outcomes functions
