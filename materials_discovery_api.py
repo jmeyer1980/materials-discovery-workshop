@@ -224,6 +224,61 @@ class MaterialsProjectClient:
         print(f"Total binary alloys collected: {len(combined_df)}")
         return combined_df
 
+    def get_binary_alloys_for_training(self,
+                         element_pairs: List[Tuple[str, str]] = None,
+                         limit_per_pair: int = 50,
+                         energy_above_hull_max: float = 0.5) -> pd.DataFrame:
+        """
+        Get binary alloy materials for training with broader stability range.
+        This includes both stable and unstable materials for balanced ML training.
+
+        Args:
+            element_pairs: List of (elem1, elem2) tuples
+            limit_per_pair: Max materials per element pair
+            energy_above_hull_max: Maximum E_hull to include (default 0.5 for training)
+        """
+
+        if element_pairs is None:
+            # Default common binary alloy systems
+            element_pairs = [
+                ('Al', 'Ti'), ('Al', 'V'), ('Al', 'Cr'), ('Al', 'Fe'), ('Al', 'Ni'), ('Al', 'Cu'),
+                ('Ti', 'V'), ('Ti', 'Cr'), ('Ti', 'Fe'), ('Ti', 'Ni'),
+                ('V', 'Cr'), ('Fe', 'Co'), ('Fe', 'Ni'), ('Co', 'Ni'), ('Ni', 'Cu')
+            ]
+
+        all_materials = []
+
+        for elem1, elem2 in element_pairs:
+            print(f"Querying binary alloys for training: {elem1}-{elem2} (E_hull ≤ {energy_above_hull_max})")
+
+            materials = self.get_materials_summary(
+                elements=[elem1, elem2],
+                energy_above_hull_max=energy_above_hull_max,  # Broader range for training
+                nsites_max=10,
+                limit=limit_per_pair
+            )
+
+            if not materials.empty:
+                materials['element_1'] = elem1
+                materials['element_2'] = elem2
+                materials['alloy_type'] = 'binary'
+                all_materials.append(materials)
+
+            # Small delay between queries
+            time.sleep(0.5)
+
+        if not all_materials:
+            print("No binary alloy materials found for training")
+            return pd.DataFrame()
+
+        combined_df = pd.concat(all_materials, ignore_index=True)
+
+        # Remove duplicates based on material_id
+        combined_df = combined_df.drop_duplicates(subset='material_id')
+
+        print(f"Total binary alloys collected for training: {len(combined_df)}")
+        return combined_df
+
     def get_material_properties(self, material_id: str) -> Dict:
         """Get detailed properties for a specific material."""
         try:
@@ -345,9 +400,15 @@ def create_ml_features_from_mp_data(mp_data: pd.DataFrame) -> pd.DataFrame:
 # Convenience functions for common queries
 
 def get_training_dataset(api_key: str = None,
-                        n_materials: int = 500) -> Tuple[pd.DataFrame, pd.DataFrame]:
+                        n_materials: int = 500,
+                        energy_above_hull_max: float = 0.5) -> Tuple[pd.DataFrame, pd.DataFrame]:
     """
     Get a balanced training dataset from Materials Project.
+
+    Args:
+        api_key: MP API key
+        n_materials: Target number of materials
+        energy_above_hull_max: Maximum E_hull to include (default 0.5 for training to get negatives)
 
     Returns:
     - ml_features: DataFrame with ML-ready features
@@ -356,10 +417,13 @@ def get_training_dataset(api_key: str = None,
 
     client = MaterialsProjectClient(api_key)
 
-    print("Fetching materials from Materials Project...")
+    print(f"Fetching materials from Materials Project (E_hull ≤ {energy_above_hull_max})...")
 
-    # Get binary alloys
-    binary_data = client.get_binary_alloys(limit_per_pair=max(20, n_materials // 15))
+    # Get binary alloys with broader stability range for training
+    binary_data = client.get_binary_alloys_for_training(
+        limit_per_pair=max(20, n_materials // 15),
+        energy_above_hull_max=energy_above_hull_max
+    )
 
     if binary_data.empty:
         print("No data retrieved from Materials Project")

@@ -889,6 +889,150 @@ def create_gradio_interface():
 
                 reliability_plot = gr.Plot(label="Calibration Curve & Distance Histogram")
 
+            with gr.TabItem("🔬 Model Diagnostics"):
+                gr.Markdown("### Model Performance Diagnostics & Technical Details")
+                gr.Markdown("""
+                **Model Diagnostics Overview:**
+
+                This tab provides detailed technical information about the ML models, including:
+                - Training performance metrics
+                - Calibration quality assessment
+                - Ensemble weighting optimization
+                - Cross-validation results
+                - Feature importance analysis
+
+                **Key Diagnostic Metrics:**
+                - **Expected Calibration Error (ECE)**: Measures probability calibration quality
+                - **Brier Score**: Combined measure of calibration and refinement
+                - **Cross-Validation Scores**: Model robustness across different data splits
+                - **Ensemble Weights**: Optimal balance between ML and rule-based predictions
+                """)
+
+                # Model diagnostics display
+                diagnostics_summary = gr.Markdown("""
+                **Model Performance Summary:**
+                - **Status**: Not yet trained
+                - **Accuracy**: N/A
+                - **Calibration**: N/A
+                - **Ensemble Weights**: N/A
+                """)
+
+                with gr.Row():
+                    with gr.Column():
+                        gr.Markdown("### Training Metrics")
+                        training_metrics_display = gr.JSON(
+                            value={},
+                            label="Detailed Training Metrics"
+                        )
+
+                    with gr.Column():
+                        gr.Markdown("### Calibration Assessment")
+                        calibration_metrics_display = gr.JSON(
+                            value={},
+                            label="Calibration Quality Metrics"
+                        )
+
+                gr.Markdown("### Ensemble Optimization")
+                ensemble_weights_display = gr.JSON(
+                    value={},
+                    label="Current Ensemble Weights"
+                )
+
+                gr.Markdown("### Cross-Validation Results")
+                cv_results_display = gr.JSON(
+                    value={},
+                    label="Cross-Validation Performance"
+                )
+
+                # Update diagnostics button
+                update_diagnostics_btn = gr.Button("🔄 Update Model Diagnostics", variant="primary")
+
+                def update_model_diagnostics():
+                    """Update model diagnostics information."""
+                    try:
+                        # Get current model state
+                        if not ml_classifier.is_trained:
+                            summary = "**Model Performance Summary:**\n- **Status**: Not yet trained\n- **Accuracy**: N/A\n- **Calibration**: N/A\n- **Ensemble Weights**: N/A"
+                            training_metrics = {}
+                            calibration_metrics = {}
+                            ensemble_weights = ml_classifier.ensemble_weights
+                            cv_results = {}
+                        else:
+                            # Get calibration summary
+                            cal_summary = ml_classifier.get_calibration_summary()
+
+                            summary = f"""**Model Performance Summary:**
+- **Status**: Trained on {len(ml_classifier.training_features_scaled) if hasattr(ml_classifier, 'training_features_scaled') and ml_classifier.training_features_scaled is not None else 'unknown'} materials
+- **Accuracy**: {ml_metrics.get('accuracy', 'N/A'):.4f}
+- **Calibration**: {cal_summary.get('calibration_status', 'N/A')} (ECE: {cal_summary.get('expected_calibration_error', 'N/A'):.3f})
+- **Ensemble Weights**: ML {ml_classifier.ensemble_weights.get('ml', 0):.2f}, LLM {ml_classifier.ensemble_weights.get('llm', 0):.2f}"""
+
+                            # Training metrics
+                            training_metrics = {
+                                "accuracy": ml_metrics.get("accuracy", 0),
+                                "precision": ml_metrics.get("precision", 0),
+                                "recall": ml_metrics.get("recall", 0),
+                                "f1_score": ml_metrics.get("f1_score", 0),
+                                "cv_mean": ml_metrics.get("cv_mean", 0),
+                                "cv_std": ml_metrics.get("cv_std", 0)
+                            }
+
+                            # Calibration metrics
+                            calibration_metrics = {
+                                "expected_calibration_error": cal_summary.get("expected_calibration_error", 0),
+                                "brier_score": cal_summary.get("brier_score", 0),
+                                "max_calibration_error": cal_summary.get("max_calibration_error", 0),
+                                "calibration_method": getattr(ml_classifier, 'calibration_method', 'none'),
+                                "calibration_status": cal_summary.get("calibration_status", "unknown")
+                            }
+
+                            # Ensemble weights
+                            ensemble_weights = ml_classifier.ensemble_weights.copy()
+
+                            # Cross-validation results
+                            cv_results = {
+                                "5_fold_mean": ml_metrics.get("cv_mean", 0),
+                                "5_fold_std": ml_metrics.get("cv_std", 0),
+                                "robustness": "High" if ml_metrics.get("cv_std", 1) < 0.05 else "Moderate" if ml_metrics.get("cv_std", 1) < 0.1 else "Low"
+                            }
+
+                        return summary, training_metrics, calibration_metrics, ensemble_weights, cv_results
+
+                    except Exception as e:
+                        error_summary = f"**Error updating diagnostics:** {str(e)}"
+                        return error_summary, {}, {}, {}, {}
+
+                # Connect diagnostics update
+                update_diagnostics_btn.click(
+                    fn=update_model_diagnostics,
+                    inputs=[],
+                    outputs=[diagnostics_summary, training_metrics_display, calibration_metrics_display, ensemble_weights_display, cv_results_display]
+                )
+
+                gr.Markdown("### Model Interpretability")
+                gr.Markdown("""
+                **Feature Importance (Random Forest):**
+                The synthesizability prediction model considers multiple material properties:
+
+                1. **Energy Above Hull** (most important): Thermodynamic stability indicator
+                2. **Formation Energy**: Chemical stability measure
+                3. **Band Gap**: Electronic structure property
+                4. **Electronegativity**: Chemical bonding tendency
+                5. **Atomic Radius**: Size-related property
+                6. **Density**: Physical property
+                7. **Unit Cell Sites**: Structural complexity
+
+                **Calibration Process:**
+                - Raw ML probabilities are adjusted using isotonic regression
+                - Ensures predicted probabilities match actual experimental success rates
+                - Reduces overconfidence in predictions
+
+                **Ensemble Method:**
+                - Combines statistical ML predictions with physics-based rules
+                - Adaptively weights each component based on calibration performance
+                - Provides more robust predictions than single models
+                """)
+
             with gr.TabItem("📥 CSV Export"):
                 gr.Markdown("### Export Materials Data for Lab Use")
                 gr.Markdown("""

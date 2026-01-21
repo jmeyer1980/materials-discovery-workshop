@@ -654,8 +654,14 @@ def create_training_dataset_from_mp(api_key: str = None, n_materials: int = 1000
 
     Materials with energy_above_hull <= 0.025 eV/atom are considered experimentally likely (synthesizable = 1)
     Materials with energy_above_hull >= 0.1 eV/atom are considered risky/unstable (synthesizable = 0)
+
+    In strict MP mode, raises exceptions instead of falling back to synthetic data.
     """
+    strict_mode = os.getenv("MP_STRICT_MODE") == "1"
+
     if not MP_API_AVAILABLE:
+        if strict_mode:
+            raise RuntimeError("Materials Project API not available and strict MP mode is enabled")
         print("Materials Project API not available, falling back to synthetic data")
         # Create mixed synthetic dataset as fallback
         icsd_data = generate_mock_icsd_data(n_materials // 2)
@@ -667,6 +673,8 @@ def create_training_dataset_from_mp(api_key: str = None, n_materials: int = 1000
     # Use provided API key or get from environment
     api_key = api_key or os.getenv("MP_API_KEY")
     if not api_key:
+        if strict_mode:
+            raise RuntimeError("No Materials Project API key provided and strict MP mode is enabled")
         print("No Materials Project API key provided, falling back to synthetic data")
         icsd_data = generate_mock_icsd_data(n_materials // 2)
         mp_data = generate_mock_mp_only_data(n_materials // 2)
@@ -675,12 +683,18 @@ def create_training_dataset_from_mp(api_key: str = None, n_materials: int = 1000
         return combined
 
     try:
-        print(f"Fetching {n_materials} materials from Materials Project...")
+        print(f"Fetching {n_materials} materials from Materials Project (broader stability range)...")
 
-        # Get real training dataset
-        ml_features, raw_data = get_training_dataset(api_key=api_key, n_materials=n_materials)
+        # Get real training dataset with broader stability range to include negative examples
+        ml_features, raw_data = get_training_dataset(
+            api_key=api_key,
+            n_materials=n_materials,
+            energy_above_hull_max=0.5  # Include materials up to 0.5 eV above hull for negatives
+        )
 
         if ml_features.empty:
+            if strict_mode:
+                raise RuntimeError("No data retrieved from Materials Project and strict MP mode is enabled")
             print("No data retrieved from Materials Project, falling back to synthetic data")
             icsd_data = generate_mock_icsd_data(n_materials // 2)
             mp_data = generate_mock_mp_only_data(n_materials // 2)
@@ -708,16 +722,22 @@ def create_training_dataset_from_mp(api_key: str = None, n_materials: int = 1000
         # Create synthesizability labels based on energy_above_hull
         training_data['energy_above_hull'] = raw_data.get('energy_above_hull', 0.05)
 
-        # Apply stability thresholds as per issue requirements
+        # Apply stability thresholds to get REAL positive and negative examples
+        # No more synthetic random labels for intermediate stability range
         training_data['synthesizable'] = np.where(
             training_data['energy_above_hull'] <= 0.025,  # Highly stable = experimentally likely
             1,  # synthesizable
             np.where(
-                training_data['energy_above_hull'] >= 0.1,  # High E_hull = risky
+                training_data['energy_above_hull'] >= 0.1,  # High E_hull = risky/unstable
                 0,  # not synthesizable
-                np.random.choice([0, 1], size=len(training_data), p=[0.3, 0.7])  # Mixed for intermediate
+                -1  # Intermediate - will be filtered out for cleaner training
             )
         )
+
+        # Filter out intermediate materials to get clean positive/negative classes
+        clean_training_data = training_data[training_data['synthesizable'] != -1].copy()
+        print(f"Filtered to {len(clean_training_data)} materials with clear stability labels")
+        training_data = clean_training_data
 
         # Ensure we have both classes
         synthesizable_count = training_data['synthesizable'].sum()
@@ -732,6 +752,8 @@ def create_training_dataset_from_mp(api_key: str = None, n_materials: int = 1000
         return training_data
 
     except Exception as e:
+        if strict_mode:
+            raise RuntimeError(f"Error creating training dataset from Materials Project and strict MP mode is enabled: {e}")
         print(f"Error creating training dataset from Materials Project: {e}")
         print("Falling back to synthetic data")
         icsd_data = generate_mock_icsd_data(n_materials // 2)
@@ -828,97 +850,7 @@ def create_vae_training_dataset_from_mp(api_key: str = None, n_materials: int = 
         return create_synthetic_dataset(n_materials)
 
 
-def create_training_dataset_from_mp(api_key: str = None, n_materials: int = 1000) -> pd.DataFrame:
-    """
-    Create training dataset from real Materials Project data using stability thresholds.
 
-    Materials with energy_above_hull <= 0.025 eV/atom are considered experimentally likely (synthesizable = 1)
-    Materials with energy_above_hull >= 0.1 eV/atom are considered risky/unstable (synthesizable = 0)
-    """
-    if not MP_API_AVAILABLE:
-        print("Materials Project API not available, falling back to synthetic data")
-        # Create mixed synthetic dataset as fallback
-        icsd_data = generate_mock_icsd_data(n_materials // 2)
-        mp_data = generate_mock_mp_only_data(n_materials // 2)
-        combined = pd.concat([icsd_data, mp_data], ignore_index=True)
-        combined = combined.sample(frac=1, random_state=42).reset_index(drop=True)
-        return combined
-
-    # Use provided API key or get from environment
-    api_key = api_key or os.getenv("MP_API_KEY")
-    if not api_key:
-        print("No Materials Project API key provided, falling back to synthetic data")
-        icsd_data = generate_mock_icsd_data(n_materials // 2)
-        mp_data = generate_mock_mp_only_data(n_materials // 2)
-        combined = pd.concat([icsd_data, mp_data], ignore_index=True)
-        combined = combined.sample(frac=1, random_state=42).reset_index(drop=True)
-        return combined
-
-    try:
-        print(f"Fetching {n_materials} materials from Materials Project...")
-
-        # Get real training dataset
-        ml_features, raw_data = get_training_dataset(api_key=api_key, n_materials=n_materials)
-
-        if ml_features.empty:
-            print("No data retrieved from Materials Project, falling back to synthetic data")
-            icsd_data = generate_mock_icsd_data(n_materials // 2)
-            mp_data = generate_mock_mp_only_data(n_materials // 2)
-            combined = pd.concat([icsd_data, mp_data], ignore_index=True)
-            combined = combined.sample(frac=1, random_state=42).reset_index(drop=True)
-            return combined
-
-        # Convert ML features back to training format
-        training_data = ml_features.copy()
-
-        # Rename columns to match expected format
-        column_mapping = {
-            'melting_point': 'formation_energy_per_atom',
-            'electronegativity': 'electronegativity',
-            'atomic_radius': 'atomic_radius',
-            'density': 'density'
-        }
-        training_data = training_data.rename(columns=column_mapping)
-
-        # Add missing columns with defaults or calculations
-        training_data['band_gap'] = raw_data.get('band_gap', np.random.uniform(0, 3, len(training_data)))
-        training_data['nsites'] = raw_data.get('nsites', np.random.randint(2, 10, len(training_data)))
-        training_data['total_magnetization'] = raw_data.get('total_magnetization', 0)
-
-        # Create synthesizability labels based on energy_above_hull
-        training_data['energy_above_hull'] = raw_data.get('energy_above_hull', 0.05)
-
-        # Apply stability thresholds as per issue requirements
-        training_data['synthesizable'] = np.where(
-            training_data['energy_above_hull'] <= 0.025,  # Highly stable = experimentally likely
-            1,  # synthesizable
-            np.where(
-                training_data['energy_above_hull'] >= 0.1,  # High E_hull = risky
-                0,  # not synthesizable
-                np.random.choice([0, 1], size=len(training_data), p=[0.3, 0.7])  # Mixed for intermediate
-            )
-        )
-
-        # Ensure we have both classes
-        synthesizable_count = training_data['synthesizable'].sum()
-        total_count = len(training_data)
-
-        print(f"Created training dataset with {total_count} materials:")
-        print(f"  - Synthesizable (E_hull ≤ 0.025): {len(training_data[training_data['energy_above_hull'] <= 0.025])}")
-        print(f"  - Not synthesizable (E_hull ≥ 0.1): {len(training_data[training_data['energy_above_hull'] >= 0.1])}")
-        print(f"  - Mixed/intermediate: {len(training_data[(training_data['energy_above_hull'] > 0.025) & (training_data['energy_above_hull'] < 0.1)])}")
-        print(f"  - Overall synthesizable ratio: {synthesizable_count/total_count:.2f}")
-
-        return training_data
-
-    except Exception as e:
-        print(f"Error creating training dataset from Materials Project: {e}")
-        print("Falling back to synthetic data")
-        icsd_data = generate_mock_icsd_data(n_materials // 2)
-        mp_data = generate_mock_mp_only_data(n_materials // 2)
-        combined = pd.concat([icsd_data, mp_data], ignore_index=True)
-        combined = combined.sample(frac=1, random_state=42).reset_index(drop=True)
-        return combined
 
 
 class SynthesizabilityClassifier:
@@ -1074,31 +1006,63 @@ class SynthesizabilityClassifier:
         self.calibration_method = calibration_method
 
         if calibration_method == 'platt':
-            # Platt scaling using logistic regression
-            self.calibration_model = CalibratedClassifierCV(
-                estimator=self.model,
-                method='sigmoid',
-                cv='prefit'
-            )
-            # Fit on training data (this would need actual training labels)
-            print("Platt scaling calibration not fully implemented - requires training labels")
-
-        elif calibration_method == 'isotonic':
-            # Isotonic regression calibration
-            # This requires the original training data
-            if self.training_labels is None:
-                print("Warning: Training labels not available for isotonic calibration")
+            # Platt scaling using logistic regression on probability outputs
+            print("Training Platt scaling calibration...")
+            try:
+                # Create a calibrated classifier using the existing model
+                self.calibration_model = CalibratedClassifierCV(
+                    estimator=self.model,
+                    method='sigmoid',
+                    cv=3  # 3-fold cross-validation for calibration
+                )
+                # Fit on the stored training data
+                if hasattr(self, 'training_features_scaled') and hasattr(self, 'training_labels'):
+                    self.calibration_model.fit(self.training_features_scaled, self.training_labels)
+                    print("✅ Platt scaling calibration completed")
+                else:
+                    print("❌ Training data not available for Platt scaling")
+                    return
+            except Exception as e:
+                print(f"❌ Platt scaling failed: {e}")
                 return
 
-            # Train isotonic regression on validation set probabilities
-            self.calibration_model = IsotonicRegression(out_of_bounds='clip')
+        elif calibration_method == 'isotonic':
+            # Isotonic regression calibration using stored calibration curve
+            print("Training isotonic regression calibration...")
+            try:
+                if self.calibration_curve is None:
+                    print("❌ No calibration curve available for isotonic regression")
+                    return
 
-            # For demonstration, we'll calibrate using the stored calibration curve
-            # In practice, you'd retrain the isotonic regressor
-            print(f"Isotonic calibration prepared using {self.calibration_method} method")
+                prob_true, prob_pred = self.calibration_curve
+
+                # Train isotonic regression to map predicted probabilities to true probabilities
+                self.calibration_model = IsotonicRegression(out_of_bounds='clip')
+                self.calibration_model.fit(prob_pred, prob_true)
+
+                print("✅ Isotonic regression calibration completed")
+
+            except Exception as e:
+                print(f"❌ Isotonic regression failed: {e}")
+                return
 
         else:
             raise ValueError(f"Unknown calibration method: {calibration_method}")
+
+    def update_calibration_status(self):
+        """
+        Update calibration metrics and status after applying calibration model.
+        This should be called after calibrate_model() to reflect improved calibration.
+        """
+        if not hasattr(self, 'calibration_model') or self.calibration_model is None:
+            return
+
+        # For now, we can update the status based on the calibration method used
+        # In a more sophisticated implementation, we'd re-compute metrics
+        if hasattr(self, 'calibration_metrics') and self.calibration_metrics:
+            # Mark that calibration has been applied
+            self.calibration_metrics['calibration_applied'] = True
+            print("✅ Calibration status updated after applying calibration model")
 
     def get_calibration_summary(self) -> Dict:
         """
@@ -1183,6 +1147,25 @@ class SynthesizabilityClassifier:
         # Make predictions
         predictions = self.model.predict(X_pred_scaled)
         probabilities = self.model.predict_proba(X_pred_scaled)[:, 1]
+
+        # Apply calibration if available
+        if self.calibration_model is not None:
+            if self.calibration_method == 'platt':
+                # Use CalibratedClassifierCV for Platt scaling
+                calibrated_predictions = self.calibration_model.predict(X_pred_scaled)
+                calibrated_probabilities = self.calibration_model.predict_proba(X_pred_scaled)[:, 1]
+                predictions = calibrated_predictions
+                probabilities = calibrated_probabilities
+                print("Applied Platt scaling calibration to predictions")
+            elif self.calibration_method == 'isotonic':
+                # Apply isotonic regression to raw probabilities
+                calibrated_probabilities = self.calibration_model.predict(probabilities)
+                # Clip to valid probability range
+                calibrated_probabilities = np.clip(calibrated_probabilities, 0.0, 1.0)
+                probabilities = calibrated_probabilities
+                # Update predictions based on calibrated probabilities
+                predictions = (probabilities >= 0.5).astype(int)
+                print("Applied isotonic regression calibration to predictions")
 
         # Add results to dataframe
         results_df = materials_df.copy()
