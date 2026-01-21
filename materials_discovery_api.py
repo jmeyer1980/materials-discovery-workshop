@@ -6,13 +6,17 @@ This module provides functions to query real materials data from the Materials P
 database using their REST API. It replaces synthetic data generation with actual
 materials science data for more realistic ML training and validation.
 
-API Key: pkHkQjeWQe8lFY29NV2p1yQ52rBKX3KE
+IMPORTANT: A valid Materials Project API key is required to use this module.
+You can obtain a free API key from: https://materialsproject.org/api
+Set the API key as an environment variable: export MP_API_KEY="your_key_here"
+Or pass it directly when creating a MaterialsProjectClient instance.
 """
 
 import requests
 import pandas as pd
 import numpy as np
 import time
+import os
 from typing import List, Dict, Optional, Tuple
 import pymatgen.core as mg
 from pymatgen.ext.matproj import MPRester
@@ -21,12 +25,28 @@ from pymatgen.ext.matproj import MPRester
 class MaterialsProjectClient:
     """Client for Materials Project API with rate limiting and error handling."""
 
-    def __init__(self, api_key: str = "pkHkQjeWQe8lFY29NV2p1yQ52rBKX3KE"):
+    def __init__(self, api_key: str = None):
+        if not api_key:
+            raise ValueError("Materials Project API key is required. Please provide a valid API key from https://materialsproject.org/api")
         self.api_key = api_key
         self.base_url = "https://api.materialsproject.org"
         self.last_request_time = 0
         self.rate_limit_delay = 0.2  # 200ms between requests
         self.max_retries = 3
+
+    def validate_api_key(self) -> bool:
+        """Validate the API key by making a test request."""
+        try:
+            # Make a minimal test request
+            response = self._make_request("/materials/summary/", {"_limit": 1})
+            return True
+        except ValueError as e:
+            if "API key authentication failed" in str(e):
+                return False
+            raise
+        except Exception:
+            # Other errors (network, etc.) don't necessarily mean invalid key
+            return True
 
     def _rate_limit_wait(self):
         """Implement rate limiting between API calls."""
@@ -324,7 +344,7 @@ def create_ml_features_from_mp_data(mp_data: pd.DataFrame) -> pd.DataFrame:
 
 # Convenience functions for common queries
 
-def get_training_dataset(api_key: str = "pkHkQjeWQe8lFY29NV2p1yQ52rBKX3KE",
+def get_training_dataset(api_key: str = None,
                         n_materials: int = 500) -> Tuple[pd.DataFrame, pd.DataFrame]:
     """
     Get a balanced training dataset from Materials Project.
@@ -356,18 +376,31 @@ def get_training_dataset(api_key: str = "pkHkQjeWQe8lFY29NV2p1yQ52rBKX3KE",
 if __name__ == "__main__":
     # Test the API integration
     print("Testing Materials Project API integration...")
+    print("Note: This test requires a valid Materials Project API key.")
+    print("Please provide your API key from https://materialsproject.org/api")
 
-    client = MaterialsProjectClient()
+    # For testing, you can set your API key here or pass it as an environment variable
+    test_api_key = os.getenv("MP_API_KEY")
+    if not test_api_key:
+        print("No API key found. Set MP_API_KEY environment variable or modify the test code.")
+        exit(1)
 
-    # Test basic query
-    test_data = client.get_materials_summary(
-        elements=["Al", "Ti"],
-        energy_above_hull_max=0.05,
-        limit=5
-    )
+    try:
+        client = MaterialsProjectClient(test_api_key)
 
-    if not test_data.empty:
-        print("API connection successful!")
-        print(test_data[['material_id', 'formula', 'band_gap', 'density']].head())
-    else:
-        print("API connection failed or no data returned")
+        # Test basic query
+        test_data = client.get_materials_summary(
+            elements=["Al", "Ti"],
+            energy_above_hull_max=0.05,
+            limit=5
+        )
+
+        if not test_data.empty:
+            print("API connection successful!")
+            print(test_data[['material_id', 'formula', 'band_gap', 'density']].head())
+        else:
+            print("API connection failed or no data returned")
+    except ValueError as e:
+        print(f"API key validation failed: {e}")
+    except Exception as e:
+        print(f"Test failed: {e}")

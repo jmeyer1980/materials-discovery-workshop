@@ -718,8 +718,8 @@ def filter_materials_by_outcome_status(materials_df: pd.DataFrame, outcomes_df: 
 def create_gradio_interface():
     """Create the main Gradio interface."""
 
-    # Get API key for Materials Project
-    api_key = os.getenv("MP_API_KEY")
+    # API key will be provided by user through the interface
+    api_key = None
 
     # Initialize models
     ml_classifier = SynthesizabilityClassifier()
@@ -745,7 +745,7 @@ def create_gradio_interface():
     # Global variable to store ML metrics for export functions
     global_ml_metrics = None
 
-    def generate_and_analyze(latent_dim, epochs, num_samples, available_equipment):
+    def generate_and_analyze(api_key, latent_dim, epochs, num_samples, available_equipment):
         """Main function to generate materials and run analysis."""
         try:
             # Train VAE
@@ -934,6 +934,23 @@ def create_gradio_interface():
         This interactive tool uses machine learning to generate new alloy compositions and predict their synthesizability.
         Adjust the parameters below to explore different material generation scenarios.
         """)
+
+        gr.Markdown("""
+        ## 🔑 Materials Project API Key (Required)
+
+        To access real materials data from the Materials Project database, you need to provide your own API key.
+        **Get your free API key at: [https://materialsproject.org/api](https://materialsproject.org/api)**
+
+        The application will work with synthetic data if no API key is provided, but real Materials Project data
+        provides much more accurate and realistic results for materials discovery.
+        """)
+
+        api_key_input = gr.Textbox(
+            label="Materials Project API Key",
+            placeholder="Enter your API key from materialsproject.org/api",
+            type="password",
+            info="Required for accessing real materials data. Leave empty to use synthetic data only."
+        )
 
         with gr.Row():
             with gr.Column(scale=1):
@@ -1236,12 +1253,13 @@ def create_gradio_interface():
                 print(f"Error in lab export: {e}")
                 return None, None
 
-        # Connect CSV export to generation function
-        def generate_with_csv(latent_dim, epochs, num_samples, available_equipment):
-            """Generate materials and prepare CSV export."""
-            results = generate_and_analyze(latent_dim, epochs, num_samples, available_equipment)
+        # Generation with global variable storage
+        def generate_and_store_global(api_key, latent_dim, epochs, num_samples, available_equipment):
+            """Generate materials and store ML metrics globally for export functions."""
+            global global_ml_metrics
+            results = generate_and_analyze(api_key, latent_dim, epochs, num_samples, available_equipment)
 
-            # Extract results_df from the tuple (it's the 3rd element)
+            # Extract results_df from the tuple (it's the 3rd element) for CSV export
             if len(results) >= 3 and isinstance(results[2], pd.DataFrame):
                 results_df = results[2].data if hasattr(results[2], 'data') else results[2]
                 csv_path = prepare_csv_export(results_df)
@@ -1251,18 +1269,9 @@ def create_gradio_interface():
             # Return all original results plus CSV path
             return results + (csv_path,)
 
-        # Generation with global variable storage
-        def generate_and_store_global(latent_dim, epochs, num_samples, available_equipment):
-            """Generate materials and store ML metrics globally for export functions."""
-            global global_ml_metrics
-            results = generate_with_csv(latent_dim, epochs, num_samples, available_equipment)
-            # Store ML metrics globally
-            global_ml_metrics = ml_metrics
-            return results
-
         generate_btn.click(
             fn=generate_and_store_global,
-            inputs=[latent_dim, epochs, num_samples, available_equipment],
+            inputs=[api_key_input, latent_dim, epochs, num_samples, available_equipment],
             outputs=[summary_output, plot_output, materials_table, priority_table, workflow_table, cba_table, methods_table, reliability_plot, csv_download]
         )
 
