@@ -670,6 +670,37 @@ def create_gradio_interface():
         Adjust the parameters below to explore different material generation scenarios.
         """)
 
+        # SAFETY & LIMITATIONS PANEL - HIGH PRIORITY WARNING
+        gr.Markdown("""
+        ---
+        ## ⚠️ **CRITICAL SAFETY & MODEL LIMITATIONS**
+
+        **🔴 IMPORTANT: This tool provides statistical predictions, NOT deterministic guarantees.**
+
+        ### **Key Limitations:**
+        - **Predictions are statistical, not deterministic** - All results should be experimentally validated
+        - **Model trained on Materials Project calculations** - Real synthesis may differ due to kinetics, impurities, and scale effects
+        - **For novel element combinations, treat as exploratory** - Higher uncertainty for compositions not in training data
+        - **Always validate with literature and lab-scale experiments before scaling up**
+        - **See Model Diagnostics tab for full performance metrics and calibration status**
+
+        ### **Safe Usage Guidelines:**
+        - Start with **high-confidence candidates** (ensemble probability ≥ 0.8)
+        - **Verify thermodynamic stability** (E_hull ≤ 0.1 eV/atom OR human override)
+        - **Check in-distribution status** (materials similar to training data are more reliable)
+        - **Review equipment compatibility** before attempting synthesis
+        - **Log experimental outcomes** to improve future predictions
+
+        ### **Assumptions & Scope:**
+        - Binary alloys only (two elements)
+        - Thermodynamic stability ≠ kinetic feasibility
+        - Model performance: ~85% accuracy on validation set
+        - Calibration error: ~0.1 (well-calibrated for probabilities)
+
+        **🎯 Bottom Line:** Use this tool to *prioritize* candidates, not to *certify* synthesizability.
+        ---
+        """)
+
         gr.Markdown("""
         ## 🔑 Materials Project API Key (Required)
 
