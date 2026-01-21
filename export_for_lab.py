@@ -14,6 +14,7 @@ from datetime import datetime
 import os
 from typing import Dict, List, Tuple, Optional
 import warnings
+import yaml
 warnings.filterwarnings('ignore')
 
 # Try to import reportlab for PDF generation, fallback to matplotlib
@@ -37,6 +38,153 @@ try:
     )
 except ImportError:
     print("Warning: Could not import synthesizability_predictor functions")
+
+
+def load_hazard_config() -> Dict:
+    """Load hazard configuration from YAML file."""
+    hazard_file = "hazards.yml"
+    if os.path.exists(hazard_file):
+        try:
+            with open(hazard_file, 'r') as f:
+                return yaml.safe_load(f)
+        except Exception as e:
+            print(f"Warning: Could not load hazard configuration: {e}")
+            return get_default_hazard_config()
+    else:
+        print("Warning: hazards.yml not found, using default configuration")
+        return get_default_hazard_config()
+
+
+def get_default_hazard_config() -> Dict:
+    """Return default hazard configuration if YAML file is not available."""
+    return {
+        'blacklist_elements': ['Be', 'Hg', 'Cd', 'Pb', 'As', 'Tl', 'Sb', 'Bi', 'Po', 'Ra', 'Rn', 'Th', 'U', 'Pu'],
+        'radioactive_elements': ['Po', 'Ra', 'Rn', 'Th', 'U', 'Pu'],
+        'safety_thresholds': {
+            'ensemble_probability_min': 0.8,
+            'thermodynamic_stability_required': 'highly_stable',
+            'in_distribution_required': True,
+            'human_override_allowed': True
+        }
+    }
+
+
+def check_material_safety(material_row: pd.Series, hazard_config: Dict = None,
+                         safe_mode: bool = True, human_override: bool = False) -> Tuple[bool, str, List[str]]:
+    """
+    Check if a material passes safety criteria for lab export.
+
+    Args:
+        material_row: Row from predictions DataFrame
+        hazard_config: Hazard configuration dictionary
+        safe_mode: Whether to enforce conservative safety thresholds
+        human_override: Whether human override is approved
+
+    Returns:
+        Tuple of (is_safe, reason, warnings)
+    """
+    if hazard_config is None:
+        hazard_config = load_hazard_config()
+
+    reasons = []
+    warnings = []
+
+    # Check for hazardous elements
+    elements = []
+    if material_row.get('element_1'):
+        elements.append(material_row['element_1'])
+    if material_row.get('element_2'):
+        elements.append(material_row['element_2'])
+    if material_row.get('element_3'):
+        elements.append(material_row['element_3'])
+
+    blacklist_elements = hazard_config.get('blacklist_elements', [])
+    hazardous_elements = [elem for elem in elements if elem in blacklist_elements]
+
+    if hazardous_elements:
+        if not human_override:
+            reasons.append(f"Contains hazardous elements: {', '.join(hazardous_elements)}")
+        else:
+            warnings.append(f"Human override approved for hazardous elements: {', '.join(hazardous_elements)}")
+
+    # Check ensemble probability
+    ensemble_prob = material_row.get('ensemble_probability', 0)
+    prob_threshold = 0.8 if safe_mode else 0.5  # Conservative threshold in safe mode
+
+    if ensemble_prob < prob_threshold:
+        reasons.append(f"Ensemble probability too low: {ensemble_prob:.3f} < {prob_threshold}")
+
+    # Check thermodynamic stability
+    stability_category = material_row.get('thermodynamic_stability_category', 'unknown')
+    if safe_mode:
+        if stability_category != 'highly_stable' and not human_override:
+            reasons.append(f"Stability category not 'highly_stable': {stability_category}")
+        elif stability_category != 'highly_stable' and human_override:
+            warnings.append(f"Human override for stability: {stability_category}")
+    else:
+        # In non-safe mode, allow marginal stability
+        if stability_category == 'unstable' and not human_override:
+            reasons.append(f"Unstable material: {stability_category}")
+
+    # Check in-distribution status
+    in_dist = material_row.get('in_distribution', 'unknown')
+    if safe_mode and in_dist != 'in-dist' and not human_override:
+        reasons.append(f"Out-of-distribution material: {in_dist}")
+    elif in_dist != 'in-dist':
+        warnings.append(f"Out-of-distribution material: predictions may be less reliable")
+
+    # Overall safety decision
+    is_safe = len(reasons) == 0
+
+    return is_safe, "; ".join(reasons) if reasons else "Safe for export", warnings
+
+
+def filter_safe_materials(predictions_df: pd.DataFrame, safe_mode: bool = True,
+                         human_override: bool = False) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+    """
+    Filter materials into safe, unsafe, and human-reviewed categories.
+
+    Args:
+        predictions_df: DataFrame with material predictions
+        safe_mode: Whether to enforce conservative safety thresholds
+        human_override: Whether human override is approved for all materials
+
+    Returns:
+        Tuple of (safe_df, unsafe_df, human_review_df)
+    """
+    hazard_config = load_hazard_config()
+
+    safe_materials = []
+    unsafe_materials = []
+    human_review_materials = []
+
+    for idx, row in predictions_df.iterrows():
+        is_safe, reason, warnings = check_material_safety(row, hazard_config, safe_mode, human_override)
+
+        # Add safety information to the row
+        row_copy = row.copy()
+        row_copy['safety_check_passed'] = is_safe
+        row_copy['safety_reason'] = reason
+        row_copy['safety_warnings'] = "; ".join(warnings) if warnings else ""
+
+        if is_safe:
+            safe_materials.append(row_copy)
+        else:
+            # Check if this could be approved with human override
+            is_safe_with_override, _, override_warnings = check_material_safety(row, hazard_config, safe_mode, True)
+
+            if is_safe_with_override:
+                row_copy['requires_human_override'] = True
+                row_copy['safety_warnings'] = "; ".join(override_warnings) if override_warnings else ""
+                human_review_materials.append(row_copy)
+            else:
+                unsafe_materials.append(row_copy)
+
+    safe_df = pd.DataFrame(safe_materials) if safe_materials else pd.DataFrame()
+    unsafe_df = pd.DataFrame(unsafe_materials) if unsafe_materials else pd.DataFrame()
+    human_review_df = pd.DataFrame(human_review_materials) if human_review_materials else pd.DataFrame()
+
+    return safe_df, unsafe_df, human_review_df
 
 
 def format_timestamp() -> str:
@@ -512,19 +660,24 @@ def generate_pdf_matplotlib(predictions_df: pd.DataFrame,
 
 def export_for_lab(predictions_df: pd.DataFrame,
                   ml_metrics: Dict = None,
-                  output_dir: str = ".") -> Tuple[str, str]:
+                  output_dir: str = ".",
+                  safe_mode: bool = True,
+                  allow_human_override: bool = False) -> Tuple[str, str, Dict]:
     """
-    Main export function that generates both CSV and PDF for lab use.
+    Main export function that generates both CSV and PDF for lab use with safety gating.
 
     Args:
         predictions_df: DataFrame containing material predictions and properties
         ml_metrics: Dictionary with ML model performance metrics (optional)
         output_dir: Directory to save output files
+        safe_mode: Whether to enforce conservative safety thresholds
+        allow_human_override: Whether to allow human override for borderline cases
 
     Returns:
-        Tuple of (csv_path, pdf_path)
+        Tuple of (csv_path, pdf_path, safety_summary)
+        safety_summary contains information about filtered materials
     """
-    print("Starting lab-ready export process...")
+    print("Starting lab-ready export process with safety gating...")
 
     # Set default ML metrics if not provided
     if ml_metrics is None:
@@ -537,17 +690,58 @@ def export_for_lab(predictions_df: pd.DataFrame,
             'cv_std': 0.05
         }
 
-    # Generate CSV file
-    csv_path = prepare_lab_ready_csv(predictions_df, output_dir)
+    # Apply safety filtering
+    safe_df, unsafe_df, human_review_df = filter_safe_materials(
+        predictions_df, safe_mode=safe_mode, human_override=allow_human_override
+    )
+
+    # Determine which materials to export
+    if allow_human_override and len(human_review_df) > 0:
+        # Include human-reviewed materials if override is allowed
+        export_df = pd.concat([safe_df, human_review_df], ignore_index=True)
+        export_df['export_status'] = export_df.apply(
+            lambda row: 'human_override_approved' if row.get('requires_human_override', False) else 'safe',
+            axis=1
+        )
+    else:
+        # Only export safe materials
+        export_df = safe_df.copy()
+        export_df['export_status'] = 'safe'
+
+    # Safety summary
+    safety_summary = {
+        'total_materials': len(predictions_df),
+        'safe_materials': len(safe_df),
+        'unsafe_materials': len(unsafe_df),
+        'human_review_materials': len(human_review_df),
+        'exported_materials': len(export_df),
+        'safe_mode_enabled': safe_mode,
+        'human_override_allowed': allow_human_override,
+        'hazard_config_loaded': os.path.exists("hazards.yml")
+    }
+
+    print("Safety filtering results:")
+    print(f"  Total materials: {safety_summary['total_materials']}")
+    print(f"  Safe for export: {safety_summary['safe_materials']}")
+    print(f"  Requires human review: {safety_summary['human_review_materials']}")
+    print(f"  Blocked (unsafe): {safety_summary['unsafe_materials']}")
+    print(f"  Exported: {safety_summary['exported_materials']}")
+
+    if len(export_df) == 0:
+        print("WARNING: No materials passed safety criteria! Export aborted.")
+        return None, None, safety_summary
+
+    # Generate CSV file with safe materials only
+    csv_path = prepare_lab_ready_csv(export_df, output_dir)
 
     # Generate PDF report
-    pdf_path = generate_pdf_report(predictions_df, ml_metrics, output_dir)
+    pdf_path = generate_pdf_report(export_df, ml_metrics, output_dir)
 
     print("Export complete!")
     print(f"CSV file: {csv_path}")
     print(f"PDF report: {pdf_path}")
 
-    return csv_path, pdf_path
+    return csv_path, pdf_path, safety_summary
 
 
 if __name__ == "__main__":
