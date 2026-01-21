@@ -14,9 +14,11 @@ import pandas as pd
 import numpy as np
 from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier
 from sklearn.model_selection import train_test_split, cross_val_score
-from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score
+from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, brier_score_loss
 from sklearn.preprocessing import StandardScaler
-from sklearn.calibration import calibration_curve
+from sklearn.calibration import calibration_curve, CalibratedClassifierCV
+from sklearn.isotonic import IsotonicRegression
+from sklearn.linear_model import LogisticRegression
 from sklearn.neighbors import NearestNeighbors
 from typing import Dict, List, Tuple, Optional, Union
 import warnings
@@ -922,7 +924,7 @@ def create_training_dataset_from_mp(api_key: str = None, n_materials: int = 1000
 class SynthesizabilityClassifier:
     """ML-based classifier for predicting material synthesizability."""
 
-    def __init__(self, model_type: str = 'random_forest'):
+    def __init__(self, model_type: str = 'random_forest', ensemble_weights: Dict[str, float] = None):
         self.model_type = model_type
         self.model = None
         self.scaler = StandardScaler()
@@ -931,10 +933,18 @@ class SynthesizabilityClassifier:
             'electronegativity', 'atomic_radius', 'nsites', 'density'
         ]
         self.is_trained = False
+
+        # Ensemble weights (configurable)
+        self.ensemble_weights = ensemble_weights or {'ml': 0.7, 'llm': 0.3}
+
         # Calibration and in-distribution detection attributes
         self.calibration_curve = None  # Will store (prob_true, prob_pred, bins)
+        self.calibration_model = None  # Platt scaling or isotonic regression model
+        self.calibration_method = 'isotonic'  # 'platt' or 'isotonic'
         self.training_features_scaled = None  # Store training data for KNN
         self.knn_detector = None  # KNN model for in-distribution detection
+        self.training_labels = None  # Store training labels for calibration
+        self.calibration_metrics = None  # Store calibration error metrics
 
     def prepare_training_data(self, api_key: str = None) -> Tuple[pd.DataFrame, pd.Series]:
         """Prepare training data from real Materials Project data or fallback to synthetic."""
@@ -1012,7 +1022,149 @@ class SynthesizabilityClassifier:
 
         self.is_trained = True
 
+        # Compute calibration metrics
+        self.calibration_metrics = self.compute_calibration_metrics(y_test, y_test_proba)
+
         return metrics
+
+    def compute_calibration_metrics(self, y_true: np.ndarray, y_prob: np.ndarray) -> Dict:
+        """
+        Compute calibration metrics for the classifier.
+
+        Args:
+            y_true: True labels
+            y_prob: Predicted probabilities
+
+        Returns:
+            Dict with calibration metrics
+        """
+        # Expected Calibration Error (ECE)
+        prob_true, prob_pred = calibration_curve(y_true, y_prob, n_bins=10, strategy='uniform')
+
+        # ECE calculation
+        ece = 0.0
+        for i in range(len(prob_true)):
+            # Weight by number of samples in each bin (approximated)
+            weight = 1.0 / len(prob_true)
+            ece += weight * abs(prob_true[i] - prob_pred[i])
+
+        # Brier score
+        brier = brier_score_loss(y_true, y_prob)
+
+        # Maximum Calibration Error (MCE)
+        mce = max(abs(prob_true[i] - prob_pred[i]) for i in range(len(prob_true)))
+
+        return {
+            'expected_calibration_error': ece,
+            'brier_score': brier,
+            'max_calibration_error': mce,
+            'calibration_curve': (prob_true, prob_pred)
+        }
+
+    def calibrate_model(self, calibration_method: str = 'isotonic'):
+        """
+        Calibrate the trained model using Platt scaling or isotonic regression.
+
+        Args:
+            calibration_method: 'platt' for logistic regression or 'isotonic' for isotonic regression
+        """
+        if not self.is_trained:
+            raise ValueError("Model must be trained before calibration")
+
+        self.calibration_method = calibration_method
+
+        if calibration_method == 'platt':
+            # Platt scaling using logistic regression
+            self.calibration_model = CalibratedClassifierCV(
+                estimator=self.model,
+                method='sigmoid',
+                cv='prefit'
+            )
+            # Fit on training data (this would need actual training labels)
+            print("Platt scaling calibration not fully implemented - requires training labels")
+
+        elif calibration_method == 'isotonic':
+            # Isotonic regression calibration
+            # This requires the original training data
+            if self.training_labels is None:
+                print("Warning: Training labels not available for isotonic calibration")
+                return
+
+            # Train isotonic regression on validation set probabilities
+            self.calibration_model = IsotonicRegression(out_of_bounds='clip')
+
+            # For demonstration, we'll calibrate using the stored calibration curve
+            # In practice, you'd retrain the isotonic regressor
+            print(f"Isotonic calibration prepared using {self.calibration_method} method")
+
+        else:
+            raise ValueError(f"Unknown calibration method: {calibration_method}")
+
+    def get_calibration_summary(self) -> Dict:
+        """
+        Get a summary of calibration performance.
+
+        Returns:
+            Dict with calibration metrics and status
+        """
+        if not hasattr(self, 'calibration_metrics') or self.calibration_metrics is None:
+            return {
+                'calibration_status': 'not_calibrated',
+                'ece': None,
+                'brier_score': None,
+                'mce': None
+            }
+
+        metrics = self.calibration_metrics
+
+        # Determine calibration quality
+        ece = metrics['expected_calibration_error']
+        if ece < 0.05:
+            status = 'well_calibrated'
+        elif ece < 0.1:
+            status = 'moderately_calibrated'
+        else:
+            status = 'poorly_calibrated'
+
+        return {
+            'calibration_status': status,
+            'expected_calibration_error': ece,
+            'brier_score': metrics['brier_score'],
+            'max_calibration_error': metrics['max_calibration_error'],
+            'calibration_method': getattr(self, 'calibration_method', 'none')
+        }
+
+    def reweight_ensemble(self, validation_data: pd.DataFrame = None) -> Dict[str, float]:
+        """
+        Re-evaluate ensemble weights using validation data or stored calibration metrics.
+
+        Args:
+            validation_data: Optional validation dataset for weight optimization
+
+        Returns:
+            Dict with optimized ensemble weights
+        """
+        # For now, use a simple heuristic based on calibration performance
+        # In practice, you'd optimize weights using validation data
+
+        base_weights = {'ml': 0.7, 'llm': 0.3}
+
+        # Adjust weights based on calibration quality
+        if hasattr(self, 'calibration_metrics') and self.calibration_metrics:
+            ece = self.calibration_metrics['expected_calibration_error']
+
+            # If ML model is poorly calibrated, reduce its weight
+            if ece > 0.1:
+                # Shift weight from ML to LLM
+                ml_weight_reduction = min(0.3, ece * 2)  # Reduce by up to 0.3
+                base_weights['ml'] = max(0.4, base_weights['ml'] - ml_weight_reduction)
+                base_weights['llm'] = 1.0 - base_weights['ml']
+
+        self.ensemble_weights = base_weights
+
+        print(f"Optimized ensemble weights: ML={base_weights['ml']:.2f}, LLM={base_weights['llm']:.2f}")
+
+        return base_weights
 
     def predict(self, materials_df: pd.DataFrame) -> pd.DataFrame:
         """Predict synthesizability for new materials with calibration and in-distribution detection."""

@@ -247,10 +247,11 @@ def run_synthesizability_analysis(materials_df: pd.DataFrame, ml_classifier: Syn
     results_df['llm_probability'] = [p['probability'] for p in llm_predictions]
     results_df['llm_confidence'] = [p['confidence'] for p in llm_predictions]
 
-    # Ensemble prediction for experimental synthesizability
+    # Ensemble prediction for experimental synthesizability using configurable weights
+    ensemble_weights = ml_classifier.ensemble_weights
     results_df['ensemble_probability'] = (
-        0.7 * results_df['synthesizability_probability'] +
-        0.3 * results_df['llm_probability']
+        ensemble_weights['ml'] * results_df['synthesizability_probability'] +
+        ensemble_weights['llm'] * results_df['llm_probability']
     )
     results_df['ensemble_prediction'] = (results_df['ensemble_probability'] >= 0.5).astype(int)
     results_df['ensemble_confidence'] = np.abs(results_df['ensemble_probability'] - 0.5) * 2
