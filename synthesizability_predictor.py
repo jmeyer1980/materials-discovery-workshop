@@ -18,9 +18,9 @@ from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_sc
 from sklearn.preprocessing import StandardScaler
 from sklearn.calibration import calibration_curve, CalibratedClassifierCV
 from sklearn.isotonic import IsotonicRegression
-from sklearn.linear_model import LogisticRegression
+
 from sklearn.neighbors import NearestNeighbors
-from typing import Dict, List, Tuple, Optional, Union
+from typing import Dict, List, Tuple
 import warnings
 import os
 warnings.filterwarnings('ignore')
@@ -35,7 +35,7 @@ except ImportError:
 
 # Try to import Materials Project API functions
 try:
-    from materials_discovery_api import get_training_dataset, MaterialsProjectClient
+    from materials_discovery_api import get_training_dataset
     MP_API_AVAILABLE = True
 except ImportError:
     MP_API_AVAILABLE = False
@@ -802,39 +802,82 @@ def create_vae_training_dataset_from_mp(api_key: str = None, n_materials: int = 
         # Convert to VAE training format (alloy composition features)
         vae_data = []
 
-        for idx, row in ml_features.iterrows():
-            try:
-                # Get the original material data
-                material_info = raw_data.iloc[idx] if hasattr(raw_data, 'iloc') else raw_data.loc[idx]
+        # Merge ml_features and raw_data on material_id to ensure perfect alignment
+        if 'material_id' in ml_features.columns and 'material_id' in raw_data.columns:
+            # Merge on material_id for perfect alignment
+            merged_data = ml_features.merge(raw_data[['material_id', 'formula', 'elements']],
+                                          on='material_id', how='inner')
 
-                # Extract element composition from formula or elements
-                formula = material_info.get('formula', '')
-                elements = material_info.get('elements', [])
+            for idx, row in merged_data.iterrows():
+                try:
+                    # Extract element composition from formula or elements
+                    formula = row.get('formula', '')  # Keep for scientific transparency
+                    elements = row.get('elements', [])
 
-                # For binary alloys, estimate compositions (this is simplified)
-                # In practice, you'd parse the actual composition from the formula
-                if len(elements) == 2:
-                    # Use the ML features to create realistic alloy data
-                    alloy = {
-                        'id': f'mp_alloy_{idx+1}',
-                        'alloy_type': 'binary',
-                        'element_1': elements[0] if elements else 'Al',
-                        'element_2': elements[1] if len(elements) > 1 else 'Ti',
-                        'element_3': None,
-                        'composition_1': max(0.05, min(0.95, row.get('composition_1', 0.5))),
-                        'composition_2': max(0.05, min(0.95, row.get('composition_2', 0.5))),
-                        'composition_3': 0.0,
-                        'melting_point': row.get('melting_point', 1500),
-                        'density': row.get('density', 7.0),
-                        'electronegativity': row.get('electronegativity', 1.8),
-                        'atomic_radius': row.get('atomic_radius', 1.4),
-                        'source': 'materials_project'
-                    }
-                    vae_data.append(alloy)
+                    # For binary alloys, estimate compositions (this is simplified)
+                    # In practice, you'd parse the actual composition from the formula
+                    if len(elements) == 2:
+                        # Use the ML features to create realistic alloy data
+                        alloy = {
+                            'id': f'mp_alloy_{idx+1}',
+                            'formula': formula,  # Include chemical formula for scientific transparency
+                            'alloy_type': 'binary',
+                            'element_1': elements[0] if elements else 'Al',
+                            'element_2': elements[1] if len(elements) > 1 else 'Ti',
+                            'element_3': None,
+                            'composition_1': max(0.05, min(0.95, row.get('composition_1', 0.5))),
+                            'composition_2': max(0.05, min(0.95, row.get('composition_2', 0.5))),
+                            'composition_3': 0.0,
+                            'melting_point': row.get('melting_point', 1500),
+                            'density': row.get('density', 7.0),
+                            'electronegativity': row.get('electronegativity', 1.8),
+                            'atomic_radius': row.get('atomic_radius', 1.4),
+                            'source': 'materials_project'
+                        }
+                        vae_data.append(alloy)
 
-            except Exception as e:
-                print(f"Warning: Could not process MP material {idx}: {e}")
-                continue
+                except Exception as e:
+                    print(f"Warning: Could not process MP material {idx}: {e}")
+                    continue
+
+        else:
+            # Fallback: reset indices and ensure same length
+            ml_features_reset = ml_features.reset_index(drop=True)
+            raw_data_reset = raw_data.reset_index(drop=True)
+            min_length = min(len(ml_features_reset), len(raw_data_reset))
+
+            for idx in range(min_length):
+                try:
+                    row = ml_features_reset.iloc[idx]
+                    material_info = raw_data_reset.iloc[idx]
+                    formula = material_info.get('formula', '')  # Keep for scientific transparency
+                    elements = material_info.get('elements', [])
+
+                    # For binary alloys, estimate compositions (this is simplified)
+                    # In practice, you'd parse the actual composition from the formula
+                    if len(elements) == 2:
+                        # Use the ML features to create realistic alloy data
+                        alloy = {
+                            'id': f'mp_alloy_{idx+1}',
+                            'formula': formula,  # Include chemical formula for scientific transparency
+                            'alloy_type': 'binary',
+                            'element_1': elements[0] if elements else 'Al',
+                            'element_2': elements[1] if len(elements) > 1 else 'Ti',
+                            'element_3': None,
+                            'composition_1': max(0.05, min(0.95, row.get('composition_1', 0.5))),
+                            'composition_2': max(0.05, min(0.95, row.get('composition_2', 0.5))),
+                            'composition_3': 0.0,
+                            'melting_point': row.get('melting_point', 1500),
+                            'density': row.get('density', 7.0),
+                            'electronegativity': row.get('electronegativity', 1.8),
+                            'atomic_radius': row.get('atomic_radius', 1.4),
+                            'source': 'materials_project'
+                        }
+                        vae_data.append(alloy)
+
+                except Exception as e:
+                    print(f"Warning: Could not process MP material {idx}: {e}")
+                    continue
 
         if not vae_data:
             print("No valid alloy data extracted, falling back to synthetic data")
@@ -938,7 +981,6 @@ class SynthesizabilityClassifier:
 
         # Evaluate
         y_pred = self.model.predict(X_test_scaled)
-        y_pred_proba = self.model.predict_proba(X_test_scaled)[:, 1]
 
         metrics = {
             'accuracy': accuracy_score(y_test, y_pred),
@@ -1449,7 +1491,7 @@ def recommend_synthesis_method(material_data: Dict, available_equipment: List[st
         Dict with recommended method details and reasoning
     """
     stability_score = calculate_thermodynamic_stability_score(material_data)['thermodynamic_stability_score']
-    synthesizability = material_data.get('ensemble_probability', 0.5)
+    synthesizability = material_data.get('ensemble_probability', 0.5)  # Use synthesizability score
     band_gap = material_data.get('band_gap', 1.0)
     density = material_data.get('density', 7.0)
 
@@ -1508,6 +1550,9 @@ def recommend_synthesis_method(material_data: Dict, available_equipment: List[st
             if stability_score > 0.7:
                 score += 3.0
                 reasons.append("Excellent for stable compounds")
+            if synthesizability > 0.7:  # Easy to synthesize materials
+                score += 1.5
+                reasons.append("Suitable for materials predicted to be synthesizable")
             score += 1.0  # Cost-effective baseline
 
         # CVD - for thin films and complex compositions

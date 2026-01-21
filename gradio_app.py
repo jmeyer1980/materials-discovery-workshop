@@ -2,6 +2,9 @@
 Gradio Web App for Materials Discovery Workshop
 Provides interactive interface for materials generation and synthesizability prediction
 """
+# Import synthesizability prediction classes from the dedicated module
+from typing import Dict
+from synthesizability_predictor import SynthesizabilityClassifier, LLMSynthesizabilityPredictor
 
 import gradio as gr
 import pandas as pd
@@ -9,17 +12,11 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.optim as optim
-from torch.utils.data import Dataset, DataLoader
+from torch.utils.data import DataLoader
 import matplotlib.pyplot as plt
-# import seaborn as sns
 from sklearn.preprocessing import StandardScaler
-from sklearn.cluster import KMeans
-from sklearn.decomposition import PCA
 import random
 import warnings
-from typing import List, Dict, Tuple, Optional
-import time
-import requests
 import os
 from datetime import datetime
 
@@ -29,8 +26,6 @@ warnings.filterwarnings('ignore')
 plt.style.use('default')
 # sns.set_palette("husl")
 
-# Import synthesizability prediction classes from the dedicated module
-from synthesizability_predictor import SynthesizabilityClassifier, LLMSynthesizabilityPredictor
 
 # ============================================================================
 # VAE MODEL AND TRAINING
@@ -485,10 +480,6 @@ def create_gradio_interface():
     # Initialize synthesis methods reference table
     methods_ref_df = get_synthesis_methods_reference()
 
-    # Global variables to store data for export functions
-    global_ml_metrics = None
-    global_full_results_df = None  # Store full internal DataFrame for CSV export
-
     def generate_and_analyze(api_key, latent_dim, epochs, num_samples, available_equipment):
         """Main function to generate materials and run analysis."""
         try:
@@ -588,8 +579,8 @@ def create_gradio_interface():
 
             # Cost-benefit analysis
             if len(cba_df) > 0:
-                bars = ax4.bar(range(len(cba_df)), cba_df['net_benefit'],
-                              color=['green' if x > 0 else 'red' for x in cba_df['net_benefit']])
+                ax4.bar(range(len(cba_df)), cba_df['net_benefit'],
+                       color=['green' if x > 0 else 'red' for x in cba_df['net_benefit']])
                 ax4.set_xlabel('Candidate')
                 ax4.set_ylabel('Net Benefit ($)')
                 ax4.set_title('Cost-Benefit Analysis')
@@ -1048,16 +1039,6 @@ def create_gradio_interface():
                 - All other analysis results
                 """)
 
-                csv_export_info = gr.Markdown("""
-                **Example Usage:**
-                For material Al₀.₅Ti₀.₅, the CSV will show:
-                - at%: Al: 50.0%, Ti: 50.0%
-                - wt%: Al: 51.0%, Ti: 49.0%
-                - feedstock_g_per_100g: 51.0g Al, 49.0g Ti
-
-                This allows metallurgists to immediately weigh out ingredients for synthesis!
-                """)
-
                 csv_download = gr.File(label="Download Materials CSV")
 
                 gr.Markdown("### Lab-Ready Export")
@@ -1107,20 +1088,13 @@ def create_gradio_interface():
 
         # Function to prepare CSV export
         def prepare_csv_export(results_df):
-            """Prepare CSV data for download with all required columns from global full DataFrame."""
-            global global_full_results_df
-
-            # Use the full internal DataFrame if available, otherwise fall back to the display DataFrame
-            if global_full_results_df is not None and not global_full_results_df.empty:
-                csv_data = global_full_results_df.copy()
-                print(f"Using full internal DataFrame with {len(csv_data.columns)} columns for CSV export")
+            """Prepare CSV data for download with all required columns."""
+            # Use the provided DataFrame
+            if hasattr(results_df, 'data'):
+                csv_data = results_df.data.copy()
             else:
-                # Fallback to the display DataFrame
-                if hasattr(results_df, 'data'):
-                    csv_data = results_df.data.copy()
-                else:
-                    csv_data = results_df.copy()
-                print(f"Using display DataFrame with {len(csv_data.columns)} columns for CSV export")
+                csv_data = results_df.copy()
+            print(f"Using DataFrame with {len(csv_data.columns)} columns for CSV export")
 
             if csv_data.empty:
                 return None
@@ -1155,7 +1129,6 @@ def create_gradio_interface():
 
             # Create temporary CSV file
             import tempfile
-            import os
             temp_file = tempfile.NamedTemporaryFile(mode='w', suffix='.csv', delete=False)
             csv_export_df.to_csv(temp_file.name, index=False)
             temp_file.close()
@@ -1188,18 +1161,12 @@ def create_gradio_interface():
                 print(f"Error in lab export: {e}")
                 return None, None
 
-        # Generation with global variable storage
-        def generate_and_store_global(api_key, latent_dim, epochs, num_samples, available_equipment):
-            """Generate materials and store ML metrics and full results DataFrame globally for export functions."""
-            global global_ml_metrics, global_full_results_df
+        # Generation function
+        def generate_materials(api_key, latent_dim, epochs, num_samples, available_equipment):
+            """Generate materials and return results."""
             results = generate_and_analyze(api_key, latent_dim, epochs, num_samples, available_equipment)
 
-            # Store the full internal results DataFrame globally (it's the last element in results)
-            if len(results) >= 9 and isinstance(results[8], pd.DataFrame):
-                global_full_results_df = results[8].copy()  # Full results DataFrame
-                print(f"Stored full results DataFrame with {len(global_full_results_df.columns)} columns for CSV export")
-
-            # Generate CSV using the display table for now (will be fixed in prepare_csv_export)
+            # Generate CSV using the display table
             if len(results) >= 3 and isinstance(results[2], pd.DataFrame):
                 results_df = results[2].data if hasattr(results[2], 'data') else results[2]
                 csv_path = prepare_csv_export(results_df)
@@ -1210,16 +1177,14 @@ def create_gradio_interface():
             return results + (csv_path,)
 
         generate_btn.click(
-            fn=generate_and_store_global,
+            fn=generate_materials,
             inputs=[api_key_input, latent_dim, epochs, num_samples, available_equipment],
             outputs=[summary_output, plot_output, materials_table, priority_table, workflow_table, cba_table, methods_table, reliability_plot, csv_download]
         )
 
-        # Function for lab export using global variable with safety gating
+        # Function for lab export with safety gating
         def prepare_lab_export_from_table(materials_table_data, safe_mode_enabled, allow_human_override):
-            """Prepare comprehensive lab export from table data using global ML metrics with safety gating."""
-            global global_ml_metrics
-
+            """Prepare comprehensive lab export from table data with safety gating."""
             if hasattr(materials_table_data, 'data'):
                 df = materials_table_data.data
             else:
@@ -1234,7 +1199,7 @@ def create_gradio_interface():
 
                 # Perform export with safety gating
                 csv_path, pdf_path, safety_summary = export_for_lab(
-                    df, global_ml_metrics, ".",
+                    df, ml_metrics, ".",
                     safe_mode=safe_mode_enabled,
                     allow_human_override=allow_human_override
                 )

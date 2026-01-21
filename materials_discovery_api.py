@@ -17,9 +17,8 @@ import pandas as pd
 import numpy as np
 import time
 import os
-from typing import List, Dict, Optional, Tuple
+from typing import List, Dict, Tuple
 import pymatgen.core as mg
-from pymatgen.ext.matproj import MPRester
 
 
 class MaterialsProjectClient:
@@ -39,7 +38,17 @@ class MaterialsProjectClient:
         try:
             # Make a minimal test request
             response = self._make_request("/materials/summary/", {"_limit": 1})
-            return True
+
+            # Validate that we actually got data back
+            if isinstance(response, dict) and 'data' in response:
+                data = response['data']
+                if isinstance(data, list) and len(data) >= 0:  # At least empty list means API is working
+                    return True
+
+            # If we get here, the response format is unexpected
+            print("Warning: Unexpected API response format during validation")
+            return False
+
         except ValueError as e:
             if "API key authentication failed" in str(e):
                 return False
@@ -322,7 +331,6 @@ def create_ml_features_from_mp_data(mp_data: pd.DataFrame) -> pd.DataFrame:
     features_df = mp_data.copy()
 
     # Extract element properties using pymatgen
-    element_properties = []
 
     for idx, row in features_df.iterrows():
         try:

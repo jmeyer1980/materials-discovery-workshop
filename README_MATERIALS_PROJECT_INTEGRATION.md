@@ -25,7 +25,7 @@ The workshop now supports two data sources:
 
 ### API Authentication
 
-- **Requires user-provided API key** - get your free key at: https://materialsproject.org/api
+- **Requires user-provided API key** - get your free key at: <https://materialsproject.org/api>
 - Implements proper header-based authentication (`X-API-Key`)
 - Includes rate limiting (200ms between requests) and exponential backoff
 - No hardcoded public keys - each user must provide their own API key
