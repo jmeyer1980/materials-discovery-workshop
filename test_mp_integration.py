@@ -361,7 +361,7 @@ def run_mp_integration_tests():
         return False
 
     tests_passed = 0
-    total_tests = 9
+    total_tests = 10
 
     test_functions = [
         ('MP Client Initialization', test_mp_client_initialization),

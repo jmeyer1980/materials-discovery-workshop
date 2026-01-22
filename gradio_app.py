@@ -251,9 +251,10 @@ def run_synthesizability_analysis(materials_df: pd.DataFrame, ml_classifier: Syn
     results_df['ensemble_confidence'] = np.abs(results_df['ensemble_probability'] - 0.5) * 2
 
     # Add thermodynamic stability results (separate from synthesizability)
-    results_df['thermodynamic_stability_score'] = [r['thermodynamic_stability_score'] for r in stability_results]
-    results_df['thermodynamic_stability_category'] = [r['thermodynamic_stability_category'] for r in stability_results]
-    results_df['stability_color'] = [r['stability_color'] for r in stability_results]
+    if stability_results:
+        results_df['thermodynamic_stability_score'] = [r['thermodynamic_stability_score'] for r in stability_results]
+        results_df['thermodynamic_stability_category'] = [r['thermodynamic_stability_category'] for r in stability_results]
+        results_df['stability_color'] = [r['stability_color'] for r in stability_results]
 
     return results_df
 
@@ -455,26 +456,10 @@ def filter_materials_by_outcome_status(materials_df: pd.DataFrame, outcomes_df: 
 def create_gradio_interface():
     """Create the main Gradio interface."""
 
-    # API key will be provided by user through the interface
-    api_key = None
-
-    # Initialize models
-    ml_classifier = SynthesizabilityClassifier()
-    ml_metrics = ml_classifier.train(api_key=api_key)
+    # Initialize models (will be trained when user provides API key)
+    ml_classifier = None
+    ml_metrics = {}
     llm_predictor = LLMSynthesizabilityPredictor()
-
-    # Create VAE training dataset (real MP data if available, synthetic otherwise)
-    try:
-        from synthesizability_predictor import create_vae_training_dataset_from_mp
-        dataset = create_vae_training_dataset_from_mp(api_key=api_key, n_materials=1000)
-    except ImportError:
-        print("Warning: Using synthetic dataset for VAE training")
-        dataset = create_synthetic_dataset(1000)
-
-    feature_cols = ['composition_1', 'composition_2', 'melting_point', 'density', 'electronegativity', 'atomic_radius']
-    features = dataset[feature_cols].values
-    scaler = StandardScaler()
-    features_scaled = scaler.fit_transform(features)
 
     # Initialize synthesis methods reference table
     methods_ref_df = get_synthesis_methods_reference()
@@ -482,14 +467,55 @@ def create_gradio_interface():
     def generate_and_analyze(api_key, latent_dim, epochs, num_samples, available_equipment):
         """Main function to generate materials and run analysis."""
         try:
+            print(f"Starting generation with latent_dim={latent_dim}, epochs={epochs}, num_samples={num_samples}")
+
+            # Initialize ML classifier and train with provided API key
+            nonlocal ml_classifier, ml_metrics
+            if ml_classifier is None:
+                ml_classifier = SynthesizabilityClassifier()
+                ml_metrics = ml_classifier.train(api_key=api_key)
+
+            # Create VAE training dataset (real MP data if available, synthetic otherwise)
+            try:
+                from synthesizability_predictor import create_vae_training_dataset_from_mp
+                dataset = create_vae_training_dataset_from_mp(api_key=api_key, n_materials=1000)
+                print("Using real Materials Project data for VAE training")
+            except ImportError:
+                print("Warning: Using synthetic dataset for VAE training")
+                dataset = create_synthetic_dataset(1000)
+
+            feature_cols = ['composition_1', 'composition_2', 'melting_point', 'density', 'electronegativity', 'atomic_radius']
+            features = dataset[feature_cols].values
+            scaler = StandardScaler()
+            features_scaled = scaler.fit_transform(features)
+
             # Train VAE
             vae_model = train_vae_model(features_scaled, latent_dim=latent_dim, epochs=epochs)
+            print("VAE training completed, model ready")
 
             # Generate materials
-            generated_df = generate_materials(vae_model, scaler, num_samples=num_samples)
+            try:
+                generated_df = generate_materials(vae_model, scaler, num_samples=num_samples)
+                print(f"Generated materials: {len(generated_df)} rows, columns: {list(generated_df.columns)}")
+                if generated_df.empty:
+                    raise ValueError("Material generation returned empty DataFrame")
+            except Exception as e:
+                print(f"Error in material generation: {e}")
+                import traceback
+                traceback.print_exc()
+                raise
 
             # Run synthesizability analysis
-            results_df = run_synthesizability_analysis(generated_df, ml_classifier, llm_predictor)
+            try:
+                results_df = run_synthesizability_analysis(generated_df, ml_classifier, llm_predictor)
+                print(f"Analysis completed: {len(results_df)} rows, columns: {list(results_df.columns)}")
+                if results_df.empty:
+                    raise ValueError("Synthesizability analysis returned empty DataFrame")
+            except Exception as e:
+                print(f"Error in synthesizability analysis: {e}")
+                import traceback
+                traceback.print_exc()
+                raise
 
             # Calculate priorities
             priority_df = calculate_synthesis_priority(results_df)
@@ -552,7 +578,11 @@ def create_gradio_interface():
             """
 
             # Create visualizations
-            fig, ((ax1, ax2), (ax3, ax4)) = plt.subplots(2, 2, figsize=(15, 10))
+            fig, ax = plt.subplots(2, 2, figsize=(15, 10))
+            ax1 = ax[0, 0]
+            ax2 = ax[0, 1]
+            ax3 = ax[1, 0]
+            ax4 = ax[1, 1]
 
             # Synthesis probability distribution
             ax1.hist(results_df['ensemble_probability'], bins=20, alpha=0.7, color='blue')
@@ -618,11 +648,13 @@ def create_gradio_interface():
                                 'net_benefit', 'benefit_cost_ratio']].round(3)
 
             # Create reliability plot (calibration curve and distance histogram)
-            fig2, (ax1, ax2) = plt.subplots(1, 2, figsize=(15, 6))
+            fig2, ax = plt.subplots(1, 2, figsize=(15, 6))
+            ax1 = ax[0]
+            ax2 = ax[1]
 
             # Calibration curve
             if hasattr(ml_classifier, 'calibration_curve') and ml_classifier.calibration_curve is not None:
-                prob_true, prob_pred, bins = ml_classifier.calibration_curve
+                prob_true, prob_pred = ml_classifier.calibration_curve
                 ax1.plot(prob_pred, prob_true, 's-', label='Calibration curve', color='blue', linewidth=2)
                 ax1.plot([0, 1], [0, 1], 'k--', label='Perfect calibration', alpha=0.7)
                 ax1.set_xlabel('Predicted Probability')
@@ -652,14 +684,20 @@ def create_gradio_interface():
 
             plt.tight_layout()
 
-            return summary_text, fig, results_table, priority_table, workflow_table, cba_display, methods_ref_df, fig2, results_df
+            # Prepare CSV export
+            csv_path = prepare_csv_export(results_df)
+
+            return summary_text, fig, results_table, priority_table, workflow_table, cba_display, methods_ref_df, fig2, csv_path
 
         except Exception as e:
             error_msg = f"Error during generation: {str(e)}"
-            return error_msg, None, pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), None
+            return error_msg, None, pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), None, None
 
     # Create Gradio interface
-    with gr.Blocks(title="Materials Discovery Workshop") as interface:
+    with gr.Blocks(title="Materials Discovery Workshop", css="""
+        .tabs { overflow-x: auto !important; }
+        .tab-nav { flex-wrap: nowrap !important; white-space: nowrap !important; }
+    """) as interface:
 
         gr.Markdown("""
         # 🧪 Materials Discovery Workshop
@@ -1192,22 +1230,15 @@ def create_gradio_interface():
                 return None, None
 
         # Generation function
-        def generate_materials(api_key, latent_dim, epochs, num_samples, available_equipment):
+        def handle_generate_materials(api_key, latent_dim, epochs, num_samples, available_equipment):
             """Generate materials and return results."""
             results = generate_and_analyze(api_key, latent_dim, epochs, num_samples, available_equipment)
 
-            # Generate CSV using the display table
-            if len(results) >= 3 and isinstance(results[2], pd.DataFrame):
-                results_df = results[2].data if hasattr(results[2], 'data') else results[2]
-                csv_path = prepare_csv_export(results_df)
-            else:
-                csv_path = None
-
-            # Return all original results plus CSV path
-            return results + (csv_path,)
+            # Return results (CSV path is already included in results[8])
+            return results
 
         generate_btn.click(
-            fn=generate_materials,
+            fn=handle_generate_materials,
             inputs=[api_key_input, latent_dim, epochs, num_samples, available_equipment],
             outputs=[summary_output, plot_output, materials_table, priority_table, workflow_table, cba_table, methods_table, reliability_plot, csv_download]
         )

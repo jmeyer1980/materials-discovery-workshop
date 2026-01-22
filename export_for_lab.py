@@ -126,7 +126,7 @@ def check_material_safety(material_row: pd.Series, hazard_config: Dict = None,
     if safe_mode and in_dist != 'in-dist' and not human_override:
         reasons.append(f"Out-of-distribution material: {in_dist}")
     elif in_dist != 'in-dist':
-        warnings.append(f"Out-of-distribution material: predictions may be less reliable")
+        warnings.append("Out-of-distribution material: predictions may be less reliable")
 
     # Overall safety decision
     is_safe = len(reasons) == 0
@@ -638,13 +638,13 @@ def generate_pdf_matplotlib(predictions_df: pd.DataFrame,
     """
 
     # Add text to figure
-    plt.text(0.1, 0.95, report_text, transform=plt.gca().transAxes,
+    fig.text(0.1, 0.95, report_text, transform=fig.transFigure,
              fontsize=8, verticalalignment='top', fontfamily='monospace',
              bbox=dict(boxstyle="round,pad=0.5", facecolor="lightgray", alpha=0.5))
 
-    plt.axis('off')
-    plt.savefig(pdf_path, format='pdf', bbox_inches='tight', dpi=150)
-    plt.close()
+    fig.patch.set_visible(False)  # Hide the figure patch
+    fig.savefig(pdf_path, format='pdf', bbox_inches='tight', dpi=150)
+    plt.close(fig)
 
     print(f"Generated matplotlib-based PDF report: {pdf_path}")
     return pdf_path
