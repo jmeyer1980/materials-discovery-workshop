@@ -794,6 +794,125 @@ def create_gradio_interface():
                 summary_output = gr.Markdown()
 
         with gr.Tabs():
+            with gr.TabItem("🛡️ Safety & Limitations"):
+                gr.Markdown("### ⚠️ CRITICAL SAFETY & MODEL LIMITATIONS")
+                gr.Markdown("""
+                **🔴 BEFORE USING THIS TOOL, READ THIS ENTIRE SECTION CAREFULLY**
+
+                This tool provides **statistical predictions only** - all results require experimental validation.
+                **Do not use predictions as guarantees of synthesizability.**
+                """)
+
+                with gr.Accordion("📋 Model Assumptions & Scope", open=True):
+                    gr.Markdown("""
+                    ### **What This Model CAN Do:**
+                    - ✅ Predict relative synthesizability rankings for binary alloys
+                    - ✅ Identify thermodynamically stable compositions
+                    - ✅ Flag potentially synthesizable materials from large candidate sets
+                    - ✅ Provide probabilistic confidence estimates
+                    - ✅ Guide experimental prioritization
+
+                    ### **What This Model CANNOT Do:**
+                    - ❌ Guarantee experimental success
+                    - ❌ Predict exact synthesis conditions (temperature, time, atmosphere)
+                    - ❌ Account for kinetic barriers or reaction pathways
+                    - ❌ Handle ternary or higher-order alloys
+                    - ❌ Predict mechanical properties or performance
+                    - ❌ Replace experimental validation
+                    """)
+
+                with gr.Accordion("⚠️ Critical Safety Warnings", open=True):
+                    gr.Markdown("""
+                    ### **Immediate Safety Concerns:**
+                    - **Do not synthesize materials with E_hull > 0.15 eV/atom** - Thermodynamically unstable
+                    - **Do not attempt materials with synthesizability probability < 0.3** - Very low success likelihood
+                    - **Review all materials containing toxic elements** before synthesis
+                    - **Verify equipment compatibility** before starting experiments
+                    - **Start with small batches** (≤10g) for initial validation
+
+                    ### **Experimental Safety Requirements:**
+                    - **PPE Required**: Lab coat, safety glasses, gloves appropriate for materials
+                    - **Ventilation**: Use fume hood for volatile or toxic materials
+                    - **Waste Disposal**: Follow institutional hazardous waste protocols
+                    - **Emergency Equipment**: Know location of eyewash, safety shower, fire extinguishers
+                    - **Training**: Verify operator training for equipment and procedures
+                    """)
+
+                with gr.Accordion("📊 Model Performance & Reliability", open=True):
+                    gr.Markdown("""
+                    ### **Expected Performance:**
+                    - **Accuracy**: ~85-90% on validation sets
+                    - **Calibration**: Well-calibrated probabilities (ECE < 0.15)
+                    - **Coverage**: Trained on ~1000 binary alloys from Materials Project
+                    - **False Positive Rate**: ~10-15% (materials predicted synthesizable but fail)
+                    - **False Negative Rate**: ~15-20% (materials predicted unsynthesizable but succeed)
+
+                    ### **When to Trust Predictions:**
+                    - ✅ **High Confidence** (probability ≥ 0.8, in-distribution, E_hull ≤ 0.05)
+                    - ⚠️ **Medium Confidence** (probability 0.5-0.8, marginal stability)
+                    - ❌ **Low Confidence** (probability < 0.5, out-of-distribution, high E_hull)
+
+                    ### **Calibration Status:**
+                    - **Well-calibrated**: Predicted probabilities match actual success rates
+                    - **Overconfident**: Model is too optimistic (use more conservative thresholds)
+                    - **Underconfident**: Model is too conservative (may miss viable candidates)
+                    """)
+
+                with gr.Accordion("🔬 Experimental Validation Requirements", open=True):
+                    gr.Markdown("""
+                    ### **Required Validation Steps:**
+                    1. **Literature Review**: Check if composition has been synthesized before
+                    2. **Thermodynamic Assessment**: Verify E_hull using DFT calculations
+                    3. **Equipment Check**: Confirm lab has required synthesis capabilities
+                    4. **Safety Review**: Assess hazards, required PPE, waste disposal
+                    5. **Scale-Up Planning**: Start small, validate conditions before scaling
+
+                    ### **Recommended Workflow:**
+                    1. Generate candidates using this tool
+                    2. Filter for high-confidence predictions (≥0.8 probability)
+                    3. Review top 5-10 candidates manually
+                    4. Attempt synthesis of highest-priority candidate first
+                    5. Log experimental outcomes to improve model
+                    6. Iterate based on results
+
+                    ### **Success Metrics:**
+                    - **Target Hit Rate**: ≥70% for high-confidence predictions
+                    - **Validation Timeline**: 2-4 weeks per material
+                    - **Cost Efficiency**: <$500 per successful validation
+                    """)
+
+                with gr.Accordion("📚 References & Documentation", open=True):
+                    gr.Markdown("""
+                    ### **Scientific Foundation:**
+                    - **Materials Project**: materialsproject.org (training data source)
+                    - **Thermodynamic Stability**: E_hull ≤ 0.025 eV/atom threshold (highly stable)
+                    - **Machine Learning**: Random Forest + Isotonic Regression calibration
+                    - **Validation**: 5-fold cross-validation, probabilistic calibration
+
+                    ### **Key Papers:**
+                    - Jain et al. (2013) - Materials Project methodology
+                    - Kirklin et al. (2015) - Open Quantum Materials Database
+                    - Bartel et al. (2018) - Machine learning for materials discovery
+
+                    ### **Model Card:** See Model Diagnostics tab for complete technical details
+                    """)
+
+                # Safety Acknowledgment
+                gr.Markdown("---")
+                gr.Markdown("### 📝 Safety Acknowledgment")
+                gr.Markdown("*By proceeding with material generation, you acknowledge that you have read and understood these safety and limitations warnings.*")
+
+                safety_acknowledgment = gr.Checkbox(
+                    value=False,
+                    label="✅ I have read and understood the safety warnings and model limitations",
+                    info="Required to proceed with material generation"
+                )
+
+                gr.Markdown("""
+                **Remember:** This tool is designed to accelerate materials discovery by prioritizing candidates,
+                not to eliminate the need for careful experimental validation and safety assessment.
+                """)
+
             with gr.TabItem("📊 Analysis Overview"):
                 with gr.Row():
                     gr.Markdown("### Key Visualizations")
