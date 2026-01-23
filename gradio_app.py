@@ -626,7 +626,7 @@ def create_gradio_interface():
 
             # Prepare results tables with separate stability and synthesizability columns
             display_cols = ['formula', 'thermodynamic_stability_score', 'thermodynamic_stability_category',
-                          'ensemble_probability', 'ensemble_confidence', 'energy_above_hull', 'density', 'melting_point']
+                          'ensemble_probability', 'ensemble_confidence', 'energy_above_hull', 'density', 'formation_energy_per_atom']
             results_table = results_df[display_cols].round(3)
 
             # Apply color coding for stability status
@@ -936,7 +936,7 @@ def create_gradio_interface():
                     apply_filter_btn = gr.Button("🔍 Apply Filter", variant="secondary")
 
                 materials_table = gr.DataFrame(
-                    headers=["Formula", "Stability Score", "Stability Category", "Synth. Prob.", "Synth. Conf.", "E_hull", "Density", "Melting Point"],
+                    headers=["Formula", "Stability Score", "Stability Category", "Synth. Prob.", "Synth. Conf.", "E_hull", "Density", "Formation Energy"],
                     label="Generated Materials",
                     wrap=True
                 )
