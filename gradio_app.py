@@ -699,8 +699,75 @@ def create_gradio_interface():
 
     # Create Gradio interface
     with gr.Blocks(title="Materials Discovery Workshop", css="""
-        .tabs { overflow-x: auto !important; }
-        .tab-nav { flex-wrap: nowrap !important; white-space: nowrap !important; }
+        /* Enhanced tab navigation for touch devices */
+        .tabs {
+            overflow-x: auto !important;
+            -webkit-overflow-scrolling: touch !important;
+            scrollbar-width: thin !important;
+            scrollbar-color: #ccc transparent !important;
+        }
+        .tabs::-webkit-scrollbar {
+            height: 6px !important;
+        }
+        .tabs::-webkit-scrollbar-track {
+            background: transparent !important;
+        }
+        .tabs::-webkit-scrollbar-thumb {
+            background: #ccc !important;
+            border-radius: 3px !important;
+        }
+        .tabs::-webkit-scrollbar-thumb:hover {
+            background: #999 !important;
+        }
+        .tab-nav {
+            flex-wrap: nowrap !important;
+            white-space: nowrap !important;
+            padding: 0 8px !important;
+            gap: 4px !important;
+        }
+        .tab-nav button {
+            min-width: 120px !important;
+            padding: 12px 16px !important;
+            font-size: 14px !important;
+            font-weight: 500 !important;
+            border-radius: 8px !important;
+            transition: all 0.2s ease !important;
+            border: 2px solid transparent !important;
+            background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%) !important;
+        }
+        .tab-nav button:hover {
+            background: linear-gradient(135deg, #e9ecef 0%, #dee2e6 100%) !important;
+            transform: translateY(-1px) !important;
+            box-shadow: 0 4px 8px rgba(0,0,0,0.1) !important;
+        }
+        .tab-nav button[data-selected="true"] {
+            background: linear-gradient(135deg, #007bff 0%, #0056b3 100%) !important;
+            color: white !important;
+            border-color: #0056b3 !important;
+            box-shadow: 0 2px 4px rgba(0,123,255,0.3) !important;
+        }
+        .tab-nav button[data-selected="true"]:hover {
+            background: linear-gradient(135deg, #0056b3 0%, #004085 100%) !important;
+        }
+        /* Mobile-friendly adjustments */
+        @media (max-width: 768px) {
+            .tab-nav button {
+                min-width: 100px !important;
+                padding: 10px 12px !important;
+                font-size: 13px !important;
+            }
+        }
+        @media (max-width: 480px) {
+            .tab-nav button {
+                min-width: 80px !important;
+                padding: 8px 10px !important;
+                font-size: 12px !important;
+            }
+            .tab-nav {
+                padding: 0 4px !important;
+                gap: 2px !important;
+            }
+        }
     """) as interface:
 
         gr.Markdown("""
