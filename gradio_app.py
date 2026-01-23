@@ -205,8 +205,12 @@ def run_synthesizability_analysis(materials_df: pd.DataFrame, ml_classifier: Syn
     # Prepare data for analysis
     analysis_df = materials_df.copy()
 
-    # Add required columns with defaults
-    analysis_df['formation_energy_per_atom'] = analysis_df.get('melting_point', analysis_df['melting_point'].mean())
+    # Add required columns with defaults - handle column mapping from MP data
+    if 'formation_energy_per_atom' not in analysis_df.columns:
+        # Fallback for synthetic data or if MP data doesn't have this column
+        analysis_df['formation_energy_per_atom'] = analysis_df.get('melting_point', analysis_df.get('formation_energy_per_atom', 0))
+    # Ensure formation_energy_per_atom is numeric
+    analysis_df['formation_energy_per_atom'] = pd.to_numeric(analysis_df['formation_energy_per_atom'], errors='coerce').fillna(0)
     analysis_df['energy_above_hull'] = np.random.uniform(0, 0.5, len(analysis_df))
     analysis_df['band_gap'] = np.random.uniform(0, 3, len(analysis_df))
     analysis_df['nsites'] = np.random.randint(2, 8, len(analysis_df))
