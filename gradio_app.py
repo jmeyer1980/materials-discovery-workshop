@@ -488,7 +488,7 @@ def create_gradio_interface():
                 print("Warning: Using synthetic dataset for VAE training")
                 dataset = create_synthetic_dataset(1000)
 
-            feature_cols = ['composition_1', 'composition_2', 'melting_point', 'density', 'electronegativity', 'atomic_radius']
+            feature_cols = ['composition_1', 'composition_2', 'formation_energy_per_atom', 'density', 'electronegativity', 'atomic_radius']
             features = dataset[feature_cols].values
             scaler = StandardScaler()
             features_scaled = scaler.fit_transform(features)
