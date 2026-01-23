@@ -9,7 +9,9 @@ This folder contains everything you need.
 ## 📋 Documents in This Folder
 
 ### 1. **ROADMAP_SUMMARY.md** ← START HERE
+
 A 2-minute read that explains:
+
 - What the problem is (you have a demo, not a tool)
 - The solution in 3 bullets (real data, uncertainty, feedback)
 - Timeline (4–5 weeks)
@@ -20,7 +22,9 @@ A 2-minute read that explains:
 ---
 
 ### 2. **crucible_roadmap.md**
+
 The detailed implementation guide (591 lines):
+
 - Every change explained with rationale
 - Code snippets for each major component
 - Physics/chemistry reasoning behind thresholds
@@ -32,7 +36,9 @@ The detailed implementation guide (591 lines):
 ---
 
 ### 3. **implementation_checklist.md**
+
 Checkbox-by-checkbox task breakdown (598 lines):
+
 - 40+ discrete tasks across 6 parts
 - Test cases for each feature
 - Progress tracking by week
@@ -44,7 +50,9 @@ Checkbox-by-checkbox task breakdown (598 lines):
 ---
 
 ### 4. **studio_quick_ref.md**
+
 One-page user guide (211 lines) for the metallurgists:
+
 - How to use the tool (3 steps)
 - What the numbers mean (table)
 - Method reference (arc melting, solid state, furnace)
@@ -58,13 +66,17 @@ One-page user guide (211 lines) for the metallurgists:
 ## 🚀 Quick Start (Next 2 Hours)
 
 ### Hour 1: Set Up API
+
 1. Go to [materialsproject.org](https://materialsproject.org)
 2. Create account, request API key (free)
 3. Set environment variable:
+
    ```bash
    export MP_API_KEY="your_key_here"
    ```
+
 4. Test connection:
+
    ```python
    from materials_discovery_api import MaterialsProjectClient
    client = MaterialsProjectClient(apikey="your_key")
@@ -73,14 +85,17 @@ One-page user guide (211 lines) for the metallurgists:
    ```
 
 ### Hour 2: Replace Mock Data
+
 1. Open `gradio_app.py`
 2. Find `creategradiointerface()` function
 3. Locate line with `dataset = createsyntheticdataset(1000)`
 4. Replace with:
+
    ```python
    from materials_discovery_api import gettrainingdataset
    mlfeatures, rawdata = gettrainingdataset(apikey=os.getenv("MP_API_KEY"), nmaterials=1000)
    ```
+
 5. Run locally: `python gradio_app.py`
 6. Verify: UI should show "Model trained on 1000 real binary alloys from Materials Project"
 
@@ -134,23 +149,27 @@ Add those four things in 4 weeks, and the studio will use it.
 
 ## 📞 When You Get Stuck
 
-### If API errors:
+### If API errors
+
 - Check MP_API_KEY is set: `echo $MP_API_KEY`
 - Test connection in Python REPL first (before Gradio)
 - MP API rate-limits at ~5 req/sec; code already has sleeps
 
-### If composition constraints fail:
+### If composition constraints fail
+
 - Check `generatematerials()` in gradio_app.py
 - Ensure: `comp1 = np.clip(features[0], 0.05, 0.95)`
 - Then: `comp2 = 1.0 - comp1`
 - Assert: `assert abs(comp1 + comp2 - 1.0) < 1e-6`
 
-### If UI doesn't show real data:
+### If UI doesn't show real data
+
 - Verify `mlfeatures` has > 0 rows
 - Check `mlclassifier.train()` completes
 - Look for error messages in terminal
 
-### If tests fail:
+### If tests fail
+
 - Run one test at a time: `pytest test_synthesizability.py::test_name -v`
 - Check test data assumptions (e.g., does test MP query work?)
 - Add `print()` statements to debug
@@ -178,9 +197,10 @@ START_HERE.md (you are here)
 
 ---
 
-## The Studio Will Love This When:
+## The Studio Will Love This When
 
 They can:
+
 - Generate 50 alloy candidates
 - Print a CSV
 - Walk to the furnace with exact temperatures, atmospheres, and feedstock masses
