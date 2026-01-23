@@ -1,4 +1,4 @@
-# Materials Discovery Tool: Quick Reference for the Workshop
+e# Materials Discovery Tool: Quick Reference for the Workshop
 
 ## What This Tool Does
 
