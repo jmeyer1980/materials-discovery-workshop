@@ -302,7 +302,13 @@ def prepare_lab_ready_csv(predictions_df: pd.DataFrame,
 
     # In-distribution status and nearest neighbor distance
     csv_df['InDist'] = csv_df.get('in_distribution', 'unknown')
-    csv_df['NNDistance'] = pd.to_numeric(csv_df.get('nn_distance', 0), errors='coerce').fillna(0).round(4)
+
+    # Handle NN distance properly - ensure we get a pandas Series, not an integer
+    nn_distance_col = csv_df.get('nn_distance')
+    if nn_distance_col is not None:
+        csv_df['NNDistance'] = pd.to_numeric(nn_distance_col, errors='coerce').fillna(0).round(4)
+    else:
+        csv_df['NNDistance'] = 0.0
 
     # Notes column with additional information
     def create_notes(row):
