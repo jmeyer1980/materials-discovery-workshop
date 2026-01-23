@@ -702,9 +702,11 @@ def create_gradio_interface():
         /* Enhanced tab navigation for touch devices */
         .tabs {
             overflow-x: auto !important;
+            overflow-y: hidden !important;
             -webkit-overflow-scrolling: touch !important;
             scrollbar-width: thin !important;
             scrollbar-color: #ccc transparent !important;
+            max-width: 100% !important;
         }
         .tabs::-webkit-scrollbar {
             height: 6px !important;
@@ -724,8 +726,12 @@ def create_gradio_interface():
             white-space: nowrap !important;
             padding: 0 8px !important;
             gap: 4px !important;
+            display: flex !important;
+            flex-shrink: 0 !important;
+            min-width: max-content !important;
         }
         .tab-nav button {
+            flex-shrink: 0 !important;
             min-width: 120px !important;
             padding: 12px 16px !important;
             font-size: 14px !important;
@@ -749,6 +755,18 @@ def create_gradio_interface():
         .tab-nav button[data-selected="true"]:hover {
             background: linear-gradient(135deg, #0056b3 0%, #004085 100%) !important;
         }
+
+        /* Override Gradio's default tab behavior */
+        .tabs .tab-nav {
+            overflow: visible !important;
+            flex-wrap: nowrap !important;
+        }
+
+        /* Prevent ellipsis and force horizontal scroll */
+        .tabs .tab-nav::after {
+            display: none !important;
+        }
+
         /* Mobile-friendly adjustments */
         @media (max-width: 768px) {
             .tab-nav button {
