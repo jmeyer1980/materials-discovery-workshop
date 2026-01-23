@@ -74,7 +74,7 @@ def test_synthetic_data_preparation():
 
 def test_mp_data_fetching():
     """Test fetching and processing real MP data."""
-    print("🧪 TESTING MP DATA FETCHING")
+    print("TESTING MP DATA FETCHING")
     print("=" * 40)
 
     # Try to get API key from environment
@@ -134,7 +134,7 @@ def test_mp_data_fetching():
 
 def test_classifier_training_on_mp_data(ml_features: pd.DataFrame):
     """Test training synthesizability classifier on real MP data."""
-    print("\n🧪 TESTING CLASSIFIER TRAINING ON MP DATA")
+    print("\nTESTING CLASSIFIER TRAINING ON MP DATA")
     print("=" * 50)
 
     if ml_features is None or ml_features.empty:
@@ -181,7 +181,7 @@ def test_classifier_training_on_mp_data(ml_features: pd.DataFrame):
 
 def test_vae_training_on_mp_data(ml_features: pd.DataFrame):
     """Test training VAE on real MP alloy data."""
-    print("\n🧪 TESTING VAE TRAINING ON MP DATA")
+    print("\nTESTING VAE TRAINING ON MP DATA")
     print("=" * 40)
 
     if ml_features is None or ml_features.empty:
@@ -263,7 +263,7 @@ def test_vae_training_on_mp_data(ml_features: pd.DataFrame):
 
 def test_end_to_end_pipeline(ml_features: pd.DataFrame, classifier: SynthesizabilityClassifier):
     """Test complete end-to-end pipeline with MP data."""
-    print("\n🧪 TESTING END-TO-END PIPELINE")
+    print("\nTESTING END-TO-END PIPELINE")
     print("=" * 35)
 
     if ml_features is None or classifier is None:
@@ -329,7 +329,7 @@ def test_end_to_end_pipeline(ml_features: pd.DataFrame, classifier: Synthesizabi
 
 def test_csv_export_and_physical_sanity(results_df: pd.DataFrame):
     """Test CSV export functionality and physical sanity checks."""
-    print("\n🧪 TESTING CSV EXPORT & PHYSICAL SANITY")
+    print("\nTESTING CSV EXPORT & PHYSICAL SANITY")
     print("=" * 45)
 
     if results_df is None or results_df.empty:
@@ -472,16 +472,16 @@ def run_complete_mp_validation():
     # Enable strict MP mode - no synthetic fallbacks
     os.environ["MP_STRICT_MODE"] = "1"
 
-    print("🚀 STARTING COMPLETE MP DATA VALIDATION")
+    print(">>> STARTING COMPLETE MP DATA VALIDATION")
     print("=" * 50)
 
     # Check for MP API key
     api_key = os.getenv("MP_API_KEY")
     if api_key:
-        print("🔒 Strict MP mode enabled - using real Materials Project data")
+        print("Strict MP mode enabled - using real Materials Project data")
         use_real_data = True
     else:
-        print("⚠️  No MP API key found - using synthetic data for validation")
+        print("WARNING: No MP API key found - using synthetic data for validation")
         print("    To run with real MP data, set MP_API_KEY environment variable")
         use_real_data = False
 
