@@ -1,4 +1,5 @@
 # Materials Discovery Workshop: Roadmap towards Crucible Experiment
+
 ## Detailed Implementation Guide
 
 This document is your detailed playbook. Read the ROADMAP_SUMMARY.md first. Then use this as your reference while building.
@@ -10,10 +11,12 @@ This document is your detailed playbook. Read the ROADMAP_SUMMARY.md first. Then
 ### 1.1 Replace Mock Synthesizability Labels with Real MP Signals
 
 **Current state:**
+
 - `synthesizability_predictor.py` uses mock ICSD vs MP-only distributions.
 - No real "did people synthesize this?" ground truth.
 
 **What to do:**
+
 1. In `synthesizability_predictor.py`:
    - Replace `generatemockicsddata()` with a real ICSD lookup or proxy:
      - Use Materials Project's `is_stable` field (available via API).
@@ -22,6 +25,7 @@ This document is your detailed playbook. Read the ROADMAP_SUMMARY.md first. Then
    - Replace `generatemockmponlydata()` with MP materials filtered as above, split by stability.
 
 2. Call `gettrainingdataset()` from `materials_discovery_api.py` at startup instead of mocking:
+
    ```python
    # In gradio_app.py init
    mlclassifier = SynthesizabilityClassifier()
@@ -34,11 +38,13 @@ This document is your detailed playbook. Read the ROADMAP_SUMMARY.md first. Then
    - Add fallback: if key missing, warn user and use synthetic data with a clear banner.
 
 **Why this works:**
+
 - The classifier now learns from actual MP chemical space instead of random distributions.
 - Stability thresholds (0.025, 0.1 eV/atom) are standard in the literature—materials folks will recognize them.
 - Real vs. synthetic mode is transparent in the UI.
 
 **Code changes (estimate 30 mins):**
+
 - Edit `synthesizability_predictor.py`: Replace mock functions.
 - Edit `gradio_app.py`: Add API key handling, call real dataset at startup.
 
@@ -47,15 +53,18 @@ This document is your detailed playbook. Read the ROADMAP_SUMMARY.md first. Then
 ### 1.2 Train VAE on Real MP Feature Space
 
 **Current state:**
+
 - VAE trained on synthetic compositions (Al, Ti, V, Cr, Mn, Fe, Co, Ni, Cu, Zn random).
 - Generated candidates may not reflect real alloy chemistry.
 
 **What to do:**
+
 1. In `gradio_app.py`, after fetching real MP data:
    - Use `mlfeatures` DataFrame columns directly for VAE training instead of `createsyntheticdataset()`.
    - Log the data source in the UI: "Model trained on **500 real binary alloys** from Materials Project."
 
 2. Keep compositions bounded and valid:
+
    ```python
    # In generatematerials()
    comp1 = np.clip(features[0], 0.05, 0.95)  # 5–95% bounds
@@ -64,11 +73,13 @@ This document is your detailed playbook. Read the ROADMAP_SUMMARY.md first. Then
    ```
 
 **Why this works:**
+
 - Generated alloys live in the same chemical space as known materials.
 - Compositions are guaranteed chemically valid (sum to 1.0, within bounds).
 - Someone in the shop sees "trained on 500 real alloys" and feels confident.
 
 **Code changes (estimate 20 mins):**
+
 - Edit `generatematerials()` to enforce composition bounds.
 - Log dataset source in UI markdown.
 
@@ -79,11 +90,14 @@ This document is your detailed playbook. Read the ROADMAP_SUMMARY.md first. Then
 ### 2.1 Standardize Stability Thresholds
 
 **Current state:**
+
 - Rule-based predictor uses hardcoded thresholds (e.g., energy above hull < 0.1).
 - Not documented or adjustable.
 
 **What to do:**
+
 1. In `synthesizability_predictor.py`, create a config dict:
+
    ```python
    STABILITY_THRESHOLDS = {
        "highly_stable": {"energy_above_hull_max": 0.025, "description": "Likely synthesized"},
@@ -93,6 +107,7 @@ This document is your detailed playbook. Read the ROADMAP_SUMMARY.md first. Then
    ```
 
 2. In `gradio_app.py`, expose a slider:
+
    ```python
    risk_tolerance = gr.Slider(
        minimum=0.025, maximum=0.2, value=0.1, step=0.025,
@@ -104,11 +119,13 @@ This document is your detailed playbook. Read the ROADMAP_SUMMARY.md first. Then
 3. Pass `risk_tolerance` to the classifier at prediction time.
 
 **Why this works:**
+
 - Metallurgists understand "I'm willing to accept materials up to 0.1 eV/atom above hull."
 - Thresholds match literature conventions.
 - Studio can adjust based on their risk appetite and equipment.
 
 **Code changes (estimate 1 hour):**
+
 - Add config to `synthesizability_predictor.py`.
 - Add UI slider to `gradio_app.py`.
 - Thread `risk_tolerance` through predict pipeline.
@@ -118,14 +135,17 @@ This document is your detailed playbook. Read the ROADMAP_SUMMARY.md first. Then
 ### 2.2 Separate Stability from Synthesizability
 
 **Current state:**
+
 - `LLMSynthesizabilityPredictor` mixes thermodynamic stability (energy above hull) with synthesizability (can you make it?).
 
 **What to do:**
+
 1. Create two separate columns:
    - **Thermodynamic Stability Score** (0–1): Based on Ehull, formation energy, density, etc. Color code: red (unstable) → yellow (marginal) → green (stable).
    - **Synthesizability Probability** (0–1): Based on ML classifier + rule-based heuristics (complexity, element compatibility, etc.).
 
 2. In `gradio_app.py`, show both in the results table:
+
    ```
    | Formula  | Stability | E_hull | Synth Prob | ML Conf | LLM Conf | Recommended |
    |----------|-----------|--------|-----------|---------|----------|-------------|
@@ -138,11 +158,13 @@ This document is your detailed playbook. Read the ROADMAP_SUMMARY.md first. Then
    - Red row: "Unstable → Risky, not recommended"
 
 **Why this works:**
+
 - Metallurgists can see at a glance which materials are chemically sound vs. experimentally feasible.
 - Decoupling allows them to pursue "unstable" materials if they're curious (marked as risky).
 - Transparent prioritization builds confidence.
 
 **Code changes (estimate 1.5 hours):**
+
 - Edit `synthesizability_predictor.py`: Add stability scoring function.
 - Edit `gradio_app.py`: Add two-column display, color coding.
 
@@ -151,11 +173,14 @@ This document is your detailed playbook. Read the ROADMAP_SUMMARY.md first. Then
 ### 2.3 Process-Aware Recommendations
 
 **Current state:**
+
 - `costbenefitanalysis()` assigns methods based on bandgap and stability (generic).
 - Precursor recommendations hardcoded.
 
 **What to do:**
+
 1. Add equipment and atmosphere tagging:
+
    ```python
    SYNTHESIS_METHODS = {
        "arc_melting": {
@@ -178,6 +203,7 @@ This document is your detailed playbook. Read the ROADMAP_SUMMARY.md first. Then
    ```
 
 2. In `gradio_app.py`, add equipment selector:
+
    ```python
    available_equipment = gr.CheckboxGroup(
        choices=["Arc Melter", "Furnace (1200°C)", "Vacuum Chamber", "Rolling Mill"],
@@ -189,11 +215,13 @@ This document is your detailed playbook. Read the ROADMAP_SUMMARY.md first. Then
 3. Filter `costbenefitanalysis()` results to match available equipment.
 
 **Why this works:**
+
 - "Use arc melting" is generic; "Use arc melting, 45 min at 2200°C under Ar, costs ~$150 in materials" is actionable.
 - Studio sees immediately if a candidate is feasible with their gear.
 - Removes guesswork about what's possible in-house.
 
 **Code changes (estimate 1.5 hours):**
+
 - Add SYNTHESIS_METHODS config.
 - Add equipment selector to UI.
 - Filter recommendations in costbenefitanalysis().
@@ -203,11 +231,14 @@ This document is your detailed playbook. Read the ROADMAP_SUMMARY.md first. Then
 ### 2.4 Tight Composition Constraints
 
 **Current state:**
+
 - Generated compositions may be invalid (> 100%, < 0%, etc.).
 - Single element per slot; no exploration of, e.g., (Al0.5Ti0.3V0.2).
 
 **What to do:**
+
 1. For binary alloys (primary use case):
+
    ```python
    # In generatematerials()
    comp1 = np.clip(features[0], 0.05, 0.95)
@@ -216,6 +247,7 @@ This document is your detailed playbook. Read the ROADMAP_SUMMARY.md first. Then
    ```
 
 2. For ternary alloys (advanced):
+
    ```python
    comp1 = np.clip(features[0], 0.05, 0.85)
    comp2 = np.clip(features[1], 0.05, 0.85)
@@ -226,6 +258,7 @@ This document is your detailed playbook. Read the ROADMAP_SUMMARY.md first. Then
    ```
 
 3. Add export formats:
+
    ```python
    # Export CSV includes at.%, wt.%, and feedstock mass for 100g batch
    export_df["%_atm"] = comp1 * 100
@@ -234,11 +267,13 @@ This document is your detailed playbook. Read the ROADMAP_SUMMARY.md first. Then
    ```
 
 **Why this works:**
+
 - Studio can print the CSV and immediately weigh out ingredients for a 100g batch.
 - "Al0.5Ti0.5" → "51g Al, 49g Ti" is in the same language they use.
 - No ambiguity about what to put in the crucible.
 
 **Code changes (estimate 1 hour):**
+
 - Tighten composition generation in `generatematerials()`.
 - Add weight-percent calculations (use `pymatgen.core.Composition`).
 - Add feedstock columns to export CSV.
@@ -250,11 +285,14 @@ This document is your detailed playbook. Read the ROADMAP_SUMMARY.md first. Then
 ### 3.1 Calibration & In-Distribution Signals
 
 **Current state:**
+
 - ML classifier outputs 0–1 probability with no indication of reliability.
 - No signal for "this is outside the training set."
 
 **What to do:**
+
 1. Compute calibration metrics at startup:
+
    ```python
    # In SynthesizabilityClassifier.train()
    from sklearn.calibration import calibration_curve
@@ -263,6 +301,7 @@ This document is your detailed playbook. Read the ROADMAP_SUMMARY.md first. Then
    ```
 
 2. Add "calibration" column to results:
+
    ```python
    # For each predicted probability, compute distance to calibration curve
    # If model is well-calibrated: high probability ≈ high actual frequency
@@ -271,6 +310,7 @@ This document is your detailed playbook. Read the ROADMAP_SUMMARY.md first. Then
    ```
 
 3. Add in-distribution detection:
+
    ```python
    # Compute distance in latent space or feature space
    # Materials near training data: "in-distribution"
@@ -280,11 +320,13 @@ This document is your detailed playbook. Read the ROADMAP_SUMMARY.md first. Then
    ```
 
 **Why this works:**
+
 - Studio sees: "This is a high-probability prediction with high confidence" vs. "This is a novel extrapolation; use as inspiration, not gospel."
 - Builds trust by being explicit about limits.
 - Matches how domain experts think: "Is this thing I'm predicting like things I've seen before?"
 
 **Code changes (estimate 2 hours):**
+
 - Add calibration computation to `SynthesizabilityClassifier.train()`.
 - Add KNN distance calculation to generation pipeline.
 - Add columns to results table.
@@ -295,14 +337,19 @@ This document is your detailed playbook. Read the ROADMAP_SUMMARY.md first. Then
 ### 3.2 Export with Full Context
 
 **Current state:**
+
 - UI shows results, but no easy way to export for the lab.
 
 **What to do:**
+
 1. Create a single "Export for Synthesis" button that generates:
+
    ```
    crucible_ready_alloys_20260118.csv
    ```
+
    With columns:
+
    ```
    | ID | Formula | Comp1 | Comp2 | at% | wt% | Feed_g_100g | Stability | Synth_Prob | ML_Conf | LLM_Conf | Ensemble_Conf | Ehull | Method | Precursors | Temp_C | Atm | Success_Prob | Est_Cost | Est_Time_h | Priority | In_Distribution | NN_Distance | Notes |
    |----|---------| ... |
@@ -315,6 +362,7 @@ This document is your detailed playbook. Read the ROADMAP_SUMMARY.md first. Then
    - Recommended workflow: "Start with Priority 1, highest confidence candidates."
 
 3. In `gradio_app.py`:
+
    ```python
    export_btn = gr.Button("Export Synthesis Plan")
    export_btn.click(
@@ -325,11 +373,13 @@ This document is your detailed playbook. Read the ROADMAP_SUMMARY.md first. Then
    ```
 
 **Why this works:**
+
 - Metallurgist clicks one button, walks away with a printed CSV and a checklist.
 - Full context (stability, confidence, success odds, cost, time) is right there.
 - No ambiguity—the export is a concrete contract between the model and the experimentalist.
 
 **Code changes (estimate 2–3 hours):**
+
 - Create `export_for_lab()` function in `gradio_app.py`.
 - Generate PDF with `reportlab` or similar (lightweight).
 - Ensure all data is logged (costs, times, success probs) and surfaced.
@@ -339,10 +389,13 @@ This document is your detailed playbook. Read the ROADMAP_SUMMARY.md first. Then
 ### 3.3 Feedback Loop Setup
 
 **Current state:**
+
 - Model is static; no way to learn from failed or successful experiments.
 
 **What to do:**
+
 1. Add "Experimental Outcome Log" in the UI:
+
    ```python
    outcome = gr.Dropdown(
        choices=["Not yet attempted", "Successful synthesis", "Partial success", "Failed"],
@@ -354,6 +407,7 @@ This document is your detailed playbook. Read the ROADMAP_SUMMARY.md first. Then
    ```
 
 2. Store outcomes in a simple CSV or JSON:
+
    ```
    outcomes.csv:
    formula, attempted_date, outcome, ml_pred, llm_pred, ehull, notes
@@ -365,11 +419,13 @@ This document is your detailed playbook. Read the ROADMAP_SUMMARY.md first. Then
    - "In last 10 experiments: 7 successes (70% hit rate) among high-confidence predictions."
 
 **Why this works:**
+
 - Model improves over time as the studio feeds back real results.
 - Studio sees their own data reflected back: "Our metallurgy validates the model."
 - Builds long-term trust and continuous improvement loop.
 
 **Code changes (estimate 2 hours):**
+
 - Add outcome logging UI to `gradio_app.py`.
 - Add CSV writer to save outcomes.
 - Add validation metrics computation.
@@ -382,6 +438,7 @@ This document is your detailed playbook. Read the ROADMAP_SUMMARY.md first. Then
 ### 4.1 Model Diagnostics Dashboard
 
 **Add a dedicated tab:**
+
 ```
 | Model Diagnostics Tab |
 |   Training Data:
@@ -410,6 +467,7 @@ This document is your detailed playbook. Read the ROADMAP_SUMMARY.md first. Then
 ```
 
 **Code changes (estimate 1.5 hours):**
+
 - Create metrics computation function.
 - Add Markdown + Plot to Gradio.
 
@@ -418,6 +476,7 @@ This document is your detailed playbook. Read the ROADMAP_SUMMARY.md first. Then
 ### 4.2 Safety & Limitations Panel
 
 **Add a visible note:**
+
 ```
 ⚠️ LIMITATIONS & SAFETY
 - Predictions are statistical, not deterministic.
@@ -428,6 +487,7 @@ This document is your detailed playbook. Read the ROADMAP_SUMMARY.md first. Then
 ```
 
 **Code changes (estimate 20 mins):**
+
 - Add Markdown block in `gradio_app.py`.
 
 ---
@@ -437,6 +497,7 @@ This document is your detailed playbook. Read the ROADMAP_SUMMARY.md first. Then
 ### 5.1 Unit & Integration Tests
 
 **In `test_synthesizability.py`, add:**
+
 - ✓ Real MP data can be loaded and features extracted.
 - ✓ VAE trains on real data and generates valid compositions (sum ≈ 1.0).
 - ✓ ML classifier has reasonable metrics on held-out test set.
@@ -446,6 +507,7 @@ This document is your detailed playbook. Read the ROADMAP_SUMMARY.md first. Then
 - ✓ In-distribution detection flags outliers.
 
 **Code changes (estimate 2 hours):**
+
 - Expand `test_synthesizability.py`.
 - Add integration test with small real MP dataset.
 
@@ -454,6 +516,7 @@ This document is your detailed playbook. Read the ROADMAP_SUMMARY.md first. Then
 ### 5.2 End-to-End Demo
 
 **Run a full pipeline on real data:**
+
 1. Load 100 real binary alloys from MP.
 2. Train VAE + ML classifier.
 3. Generate 50 new candidates.
@@ -462,11 +525,13 @@ This document is your detailed playbook. Read the ROADMAP_SUMMARY.md first. Then
 6. Manually inspect: Do the high-priority candidates look chemically reasonable?
 
 **Expected output:**
+
 - Top 5 candidates are mixtures of real binary alloys or slight variations.
 - Stability scores correlate with Ehull.
 - Success probabilities make intuitive sense (high for low-Ehull, low for high-Ehull).
 
 **Code changes (estimate 1 hour):**
+
 - Run notebook end-to-end with real data.
 - Sanity-check outputs.
 
@@ -477,6 +542,7 @@ This document is your detailed playbook. Read the ROADMAP_SUMMARY.md first. Then
 ### 6.1 Model Card
 
 Create a one-page "model card" (inspired by Google/Hugging Face):
+
 ```
 # Materials Discovery VAE + Synthesizability Classifier
 

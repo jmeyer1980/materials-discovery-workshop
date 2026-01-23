@@ -1,6 +1,7 @@
 # Materials Discovery Tool: Quick Reference for the Workshop
 
 ## What This Tool Does
+
 Generates novel alloy compositions and predicts whether they can be synthesized with your equipment. Designed for metallurgical studios to explore new materials with confidence.
 
 ---
@@ -16,6 +17,7 @@ Generates novel alloy compositions and predicts whether they can be synthesized 
 ## The Workflow in 3 Steps
 
 ### Step 1: Generate & Predict
+
 1. Click **"Generate Materials"** in the app
 2. Adjust sliders:
    - **Latent Dimension** (5–20): Higher = more variety in generated alloys
@@ -25,12 +27,15 @@ Generates novel alloy compositions and predicts whether they can be synthesized 
 4. See results: Formula, stability, synthesizability probability, cost estimate
 
 ### Step 2: Review Results
+
 Look for alloys with:
+
 - ✅ **Green row**: High stability (Ehull < 0.025) + high synth probability (> 0.8) = **PRIORITY 1**
 - ⚠️  **Yellow row**: Stable (Ehull < 0.1) but uncertain synth = **PRIORITY 2, validate first**
 - ❌ **Red row**: Unstable (Ehull > 0.1) = **Risky, skip unless exploring**
 
 **Key columns:**
+
 - **Stability**: Color-coded; 0.95 = chemically sound, 0.5 = iffy
 - **Synth Prob**: ML + expert rules combined; > 0.85 = high confidence
 - **Confidence**: Higher = model has seen similar alloys before
@@ -40,6 +45,7 @@ Look for alloys with:
 - **Success Prob**: Chance it works given the method and material
 
 ### Step 3: Execute & Log
+
 1. Click **"Export for Synthesis"** → Download CSV + PDF
 2. Print the top 5–10 candidates
 3. In the lab:
@@ -68,6 +74,7 @@ Look for alloys with:
 ## Recommended Methods & Equipment
 
 ### Arc Melting
+
 - **Best for:** Low-melting-point alloys, small batches
 - **Temp range:** 1200–3000°C
 - **Atmosphere:** Argon or vacuum
@@ -77,6 +84,7 @@ Look for alloys with:
 - **Success base:** 80%
 
 ### Solid State Reaction
+
 - **Best for:** Stable, low-melting alloys; oxides
 - **Temp range:** 600–1200°C
 - **Atmosphere:** Air or Argon
@@ -86,6 +94,7 @@ Look for alloys with:
 - **Success base:** 70%
 
 ### Furnace (1000–1500°C)
+
 - **Best for:** Most binary alloys
 - **Temp:** Depends on your furnace; ensure > melting points of both elements
 - **Atmosphere:** Inert (Argon) preferred
@@ -181,6 +190,7 @@ This is how the tool becomes yours; it learns from your metallurgical expertise.
 ## Example: From Tool to Crucible
 
 **Tool output:**
+
 ```
 Formula: Al0.6Ti0.4
 Stability: 0.92 (Ehull = 0.018 eV/atom)
@@ -194,6 +204,7 @@ Priority: 1 (TRY THIS FIRST)
 ```
 
 **You do:**
+
 1. Print and bring to shop
 2. Weigh 59.3g Al, 40.7g Ti
 3. Arc melt in Ar at 1800°C for 20 min

@@ -1,10 +1,12 @@
 # Materials Discovery Workshop: Roadmap to Crucible-Ready
+
 ## Executive Summary & Quick Start
 
 ---
 
 ## The Challenge
-You've built a sophisticated materials discovery tool (VAE + ML classifier + rule-based predictor) that works well as a demo. But a metallurgical studio won't risk $500–5000 in materials and furnace time unless they trust the predictions. 
+
+You've built a sophisticated materials discovery tool (VAE + ML classifier + rule-based predictor) that works well as a demo. But a metallurgical studio won't risk $500–5000 in materials and furnace time unless they trust the predictions.
 
 **How do you move from "this looks cool" to "I'll use this to guide real experiments"?**
 
@@ -19,28 +21,33 @@ Answer: Three things.
 ## The Roadmap at a Glance
 
 ### Part 1: Data Realism (3–4 days)
+
 - Swap out synthetic training data → real Materials Project alloys
 - Train VAE on real feature distributions
 - Enforce chemically valid compositions (sum to 1.0, 5–95% range)
 
 ### Part 2: Physics Rigor (3–4 days)
+
 - Separate thermodynamic stability from synthesizability
 - Expose configurable stability thresholds (0.025–0.1 eV/atom)
 - Add process-aware recommendations (arc melt / furnace / CVD based on equipment)
 - Weight-percent calculations for direct lab use
 
 ### Part 3: Uncertainty Quantification (3–4 days)
+
 - Compute calibration metrics (is the 80% probability actually 80%?)
 - Flag in-distribution vs. extrapolation candidates
 - Export with full context: CSV + PDF report + model card
 - Log experimental outcomes and compute hit rate
 
 ### Part 4: UX Polish (2 days)
+
 - Model diagnostics dashboard (accuracy, precision, recall, CV scores)
 - Explicit safety warnings and limitations
 - Equipment selector to filter recommendations
 
 ### Part 5: Testing (3–4 days)
+
 - Unit tests for data loading, composition validity, ML metrics
 - End-to-end pipeline validation
 - One real synthesis to close the loop
@@ -72,7 +79,9 @@ When all three are answered clearly, they print the CSV and walk to the furnace.
 ## The Deliverables
 
 ### 📊 Day 1–5: Real Data + Export
+
 **CSV Export: `crucible_ready_alloys_20260118.csv`**
+
 ```
 | Formula | Comp1 | Comp2 | at% | wt% | Feedstock_g_100g | Stability | E_hull | Synth_Prob | ML_Conf | Method | Temp_C | Atm | Success_Prob | Est_Cost | Est_Time | Priority | In_Dist | Notes |
 |---------|-------|-------|-----|-----|------------------|-----------|--------|-----------|---------|--------|--------|-----|--------------|----------|----------|----------|---------|-------|
@@ -80,7 +89,9 @@ When all three are answered clearly, they print the CSV and walk to the furnace.
 ```
 
 ### 📋 Day 5: PDF Report
+
 **`model_report_20260118.pdf`**
+
 - Data source: 1000 real binary alloys from Materials Project
 - Model: 6→VAE→5 latent, Random Forest 200 estimators
 - Performance: 87% accuracy, 0.91 precision, 0.83 recall, F1 0.87
@@ -88,7 +99,9 @@ When all three are answered clearly, they print the CSV and walk to the furnace.
 - Workflow: Start with Priority 1, validate experimentally, log outcomes
 
 ### 🎛️ Week 2: Feedback Loop
+
 **Outcomes logged in `outcomes.csv`:**
+
 ```
 | Timestamp | Formula | ML_Pred | LLM_Pred | Ensemble | Actual | Notes |
 |-----------|---------|---------|----------|----------|--------|-------|
@@ -98,6 +111,7 @@ When all three are answered clearly, they print the CSV and walk to the furnace.
 After 10 outcomes: "Your hit rate is 70%. Model is well-calibrated for your studio."
 
 ### 📱 Week 3: UI Enhancements
+
 - Stability/Synth separation with color codes
 - Equipment selector (Arc Melter ☑️ Furnace ☑️)
 - Model Diagnostics tab with full metrics
@@ -108,7 +122,9 @@ After 10 outcomes: "Your hit rate is 70%. Model is well-calibrated for your stud
 ## Three Critical Implementation Steps
 
 ### Step 1: Load Real Data (Day 1)
+
 **File: `gradio_app.py` line ~150**
+
 ```python
 from materials_discovery_api import gettrainingdataset
 import os
@@ -123,7 +139,9 @@ gr.Markdown("📊 **Model trained on 1000 real binary alloys from Materials Proj
 ```
 
 ### Step 2: Separate Stability from Synthesizability (Day 3)
+
 **File: `synthesizability_predictor.py` + `gradio_app.py`**
+
 ```python
 # New function
 def compute_thermodynamic_stability(materials_df):
@@ -137,7 +155,9 @@ def compute_thermodynamic_stability(materials_df):
 ```
 
 ### Step 3: Export + Feedback (Day 5)
+
 **File: `gradio_app.py` + new `export_for_lab.py`**
+
 ```python
 # New function
 def export_for_lab(results_df, model_diagnostics):
@@ -161,6 +181,7 @@ log_outcome_btn.click(log_outcome_in_csv, ...)
 ## Success Looks Like This
 
 **Before (Current State):**
+
 ```
 "I ran your model and got an alloy, but I have no idea:
 - Whether it's chemically stable
@@ -170,6 +191,7 @@ log_outcome_btn.click(log_outcome_in_csv, ...)
 ```
 
 **After (Crucible-Ready):**
+
 ```
 "I printed your CSV and walked to the furnace with:
 - Clear stability score (0.92 = safe to try)
@@ -219,6 +241,7 @@ log_outcome_btn.click(log_outcome_in_csv, ...)
 **What's missing is trust.**
 
 Trust comes from:
+
 - **Transparency**: "Here's exactly what I trained on and how I perform"
 - **Uncertainty**: "I know when I'm extrapolating"
 - **Actionability**: "The CSV tells you grams to weigh, not just a formula"
@@ -231,6 +254,7 @@ Add those four things, and the studio will use it. Not because it's perfect, but
 ## Next Action
 
 **Today:**
+
 1. Set `MP_API_KEY` environment variable (get from materialsproject.org)
 2. Open `gradio_app.py`, find `creategradiointerface()`, locate `createsyntheticdataset()`
 3. Replace with call to `gettrainingdataset()` from `materials_discovery_api.py`

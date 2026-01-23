@@ -19,6 +19,50 @@ import time
 import os
 from typing import List, Dict, Tuple
 import pymatgen.core as mg
+import yaml
+
+
+def validate_data_with_schema(df: pd.DataFrame, schema_path: str) -> pd.DataFrame:
+    """
+    Validates and cleans a DataFrame using a predefined YAML schema.
+
+    - Checks for the presence of required columns.
+    - Clips numeric columns to the valid range specified in the schema.
+    - Fills missing values with the mean of the column.
+    """
+    if not os.path.exists(schema_path):
+        print(f"Warning: Schema file not found at {schema_path}. Skipping validation.")
+        return df
+
+    with open(schema_path, 'r') as f:
+        schema = yaml.safe_load(f)
+
+    df_validated = df.copy()
+
+    for col_name, rules in schema.items():
+        if col_name not in df_validated.columns:
+            print(f"Warning: Column '{col_name}' not found in DataFrame. Skipping.")
+            continue
+
+        if rules.get('type') in ['float', 'integer']:
+            # Fill missing values with the mean
+            if df_validated[col_name].isnull().any():
+                mean_val = df_validated[col_name].mean()
+                df_validated[col_name].fillna(mean_val, inplace=True)
+                print(f"Info: Filled missing values in '{col_name}' with mean ({mean_val:.2f}).")
+
+            # Clip values to range
+            if 'range' in rules:
+                min_val, max_val = rules['range']
+                original_min = df_validated[col_name].min()
+                original_max = df_validated[col_name].max()
+
+                if original_min < min_val or original_max > max_val:
+                    df_validated[col_name] = df_validated[col_name].clip(min_val, max_val)
+                    print(f"Info: Clipped column '{col_name}' to range [{min_val}, {max_val}].")
+
+    print("Schema validation and cleaning complete.")
+    return df_validated
 
 
 class MaterialsProjectClient:
@@ -385,21 +429,22 @@ def create_ml_features_from_mp_data(mp_data: pd.DataFrame) -> pd.DataFrame:
         'band_gap', 'energy_above_hull', 'formation_energy_per_atom'
     ]].copy()
 
-    # Handle missing values
-    ml_features = ml_features.fillna(ml_features.mean())
+    # Handle missing values, now done in validation
+    # ml_features = ml_features.fillna(ml_features.mean())
 
     # Rename columns to match expected format
     ml_features = ml_features.rename(columns={
         'electronegativity_avg': 'electronegativity',
-        'atomic_radius_avg': 'atomic_radius',
-        'formation_energy_per_atom': 'melting_point'  # Approximation for demo
+        'atomic_radius_avg': 'atomic_radius'
     })
 
-    # Ensure reasonable ranges
-    ml_features['melting_point'] = ml_features['melting_point'].clip(-10, 10)  # Normalize formation energy
-    ml_features['density'] = ml_features['density'].clip(0, 50)
-    ml_features['electronegativity'] = ml_features['electronegativity'].clip(0, 4)
-    ml_features['atomic_radius'] = ml_features['atomic_radius'].clip(0, 3)
+    # Validate and clean data using the schema
+    schema_path = os.path.join(os.path.dirname(__file__), '..', 'feature_schema.yml')
+    if not os.path.exists(schema_path):
+        # Fallback for different project structures
+        schema_path = 'feature_schema.yml'
+        
+    ml_features = validate_data_with_schema(ml_features, schema_path)
 
     print(f"Created ML features for {len(ml_features)} materials")
     return ml_features

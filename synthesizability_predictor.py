@@ -707,7 +707,6 @@ def create_training_dataset_from_mp(api_key: str = None, n_materials: int = 1000
 
         # Rename columns to match expected format
         column_mapping = {
-            'melting_point': 'formation_energy_per_atom',
             'electronegativity': 'electronegativity',
             'atomic_radius': 'atomic_radius',
             'density': 'density'
@@ -828,7 +827,7 @@ def create_vae_training_dataset_from_mp(api_key: str = None, n_materials: int = 
                             'composition_1': max(0.05, min(0.95, row.get('composition_1', 0.5))),
                             'composition_2': max(0.05, min(0.95, row.get('composition_2', 0.5))),
                             'composition_3': 0.0,
-                            'melting_point': row.get('melting_point', 1500),
+                            'formation_energy_per_atom': row.get('formation_energy_per_atom', 0.0),
                             'density': row.get('density', 7.0),
                             'electronegativity': row.get('electronegativity', 1.8),
                             'atomic_radius': row.get('atomic_radius', 1.4),
@@ -867,7 +866,7 @@ def create_vae_training_dataset_from_mp(api_key: str = None, n_materials: int = 
                             'composition_1': max(0.05, min(0.95, row.get('composition_1', 0.5))),
                             'composition_2': max(0.05, min(0.95, row.get('composition_2', 0.5))),
                             'composition_3': 0.0,
-                            'melting_point': row.get('melting_point', 1500),
+                            'formation_energy_per_atom': row.get('formation_energy_per_atom', 0.0),
                             'density': row.get('density', 7.0),
                             'electronegativity': row.get('electronegativity', 1.8),
                             'atomic_radius': row.get('atomic_radius', 1.4),

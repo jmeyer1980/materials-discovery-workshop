@@ -1,0 +1,83 @@
+# Canonical Schema for Materials Discovery Features
+# This file serves as the single source of truth for all data pipelines.
+
+# --- Core Identifiers ---
+formula:
+  type: string
+  description: "Chemical formula of the material (e.g., 'Al0.5Ti0.5')."
+element_1:
+  type: string
+  description: "Symbol of the first element in a binary alloy."
+element_2:
+  type: string
+  description: "Symbol of the second element in a binary alloy."
+composition_1:
+  type: float
+  unit: "atomic fraction"
+  range: [0.0, 1.0]
+  description: "Fraction of element 1."
+composition_2:
+  type: float
+  unit: "atomic fraction"
+  range: [0.0, 1.0]
+  description: "Fraction of element 2."
+
+# --- Physical Properties ---
+melting_point:
+  type: float
+  unit: "Kelvin"
+  range: [0, 10000]
+  description: "Melting point of the material."
+boiling_point:
+  type: float
+  unit: "Kelvin"
+  range: [0, 10000]
+  description: "Boiling point of the material."
+density:
+  type: float
+  unit: "g/cm^3"
+  range: [0, 100]
+  description: "Density of the material."
+electronegativity:
+  type: float
+  unit: "Pauling scale"
+  range: [0, 4]
+  description: "Average electronegativity of the constituent elements."
+atomic_radius:
+  type: float
+  unit: "Angstrom"
+  range: [0, 5]
+  description: "Average atomic radius of the constituent elements."
+
+# --- Thermodynamic Properties (from Materials Project) ---
+formation_energy_per_atom:
+  type: float
+  unit: "eV/atom"
+  range: [-10, 5]
+  description: "The energy released or absorbed when a material is formed from its constituent elements."
+energy_above_hull:
+  type: float
+  unit: "eV/atom"
+  range: [0, 10]
+  description: "Energy above the convex hull, a measure of thermodynamic stability."
+band_gap:
+  type: float
+  unit: "eV"
+  range: [0, 20]
+  description: "The electronic band gap of the material."
+total_magnetization:
+  type: float
+  unit: "Bohr magneton / formula unit"
+  range: [-10, 10]
+  description: "Total magnetization of the material."
+
+# --- Structural Properties (from Materials Project) ---
+nsites:
+  type: integer
+  range: [1, 500]
+  description: "Number of atomic sites in the unit cell."
+volume:
+  type: float
+  unit: "Angstrom^3"
+  range: [0, 10000]
+  description: "Volume of the unit cell."
