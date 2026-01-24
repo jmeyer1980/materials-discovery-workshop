@@ -205,15 +205,32 @@ def run_synthesizability_analysis(materials_df: pd.DataFrame, ml_classifier: Syn
     # Prepare data for analysis
     analysis_df = materials_df.copy()
 
-    # Add required columns with defaults - handle column mapping from MP data
+    # Add required columns with defaults for generated materials
+    # These will be filled with realistic values for synthetic materials
     if 'formation_energy_per_atom' not in analysis_df.columns:
-        # Fallback for synthetic data or if MP data doesn't have this column
-        analysis_df['formation_energy_per_atom'] = analysis_df.get('melting_point', analysis_df.get('formation_energy_per_atom', 0))
-    # Ensure formation_energy_per_atom is numeric
-    analysis_df['formation_energy_per_atom'] = pd.to_numeric(analysis_df['formation_energy_per_atom'], errors='coerce').fillna(0)
-    analysis_df['energy_above_hull'] = np.random.uniform(0, 0.5, len(analysis_df))
-    analysis_df['band_gap'] = np.random.uniform(0, 3, len(analysis_df))
-    analysis_df['nsites'] = np.random.randint(2, 8, len(analysis_df))
+        # For generated materials, use a reasonable distribution based on typical alloy properties
+        # Most stable alloys have formation energies between -4 and 0 eV/atom
+        analysis_df['formation_energy_per_atom'] = np.random.normal(-1.5, 1.0, len(analysis_df))
+        analysis_df['formation_energy_per_atom'] = np.clip(analysis_df['formation_energy_per_atom'], -6.0, 2.0)
+
+    if 'energy_above_hull' not in analysis_df.columns:
+        # For generated materials, simulate energy above hull
+        # Most synthesizable alloys have E_hull < 0.1 eV/atom
+        analysis_df['energy_above_hull'] = np.random.exponential(0.05, len(analysis_df))
+        analysis_df['energy_above_hull'] = np.clip(analysis_df['energy_above_hull'], 0, 0.5)
+
+    if 'band_gap' not in analysis_df.columns:
+        # For alloys, most are metallic (band_gap ≈ 0) or have small band gaps
+        analysis_df['band_gap'] = np.random.exponential(0.5, len(analysis_df))
+        analysis_df['band_gap'] = np.clip(analysis_df['band_gap'], 0, 8.0)
+
+    if 'nsites' not in analysis_df.columns:
+        # Unit cell size for alloys
+        analysis_df['nsites'] = np.random.randint(2, 15, len(analysis_df))
+
+    # Ensure all columns are numeric
+    for col in ['formation_energy_per_atom', 'energy_above_hull', 'band_gap', 'nsites']:
+        analysis_df[col] = pd.to_numeric(analysis_df[col], errors='coerce').fillna(0)
 
     # Calculate thermodynamic stability scores (separate from synthesizability)
     try:
