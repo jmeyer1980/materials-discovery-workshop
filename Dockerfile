@@ -26,5 +26,8 @@ COPY export_for_lab.py .
 # Expose port 8080 for Google Cloud Run
 EXPOSE 8080
 
+# Set minimum memory limit to 1Gi for Google Cloud Run
+ENV CLOUD_RUN_MEMORY_LIMIT=1Gi
+
 # Run the application
 CMD ["python", "gradio_app.py"]
