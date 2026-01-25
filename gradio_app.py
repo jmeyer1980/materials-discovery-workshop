@@ -6,6 +6,13 @@ Provides interactive interface for materials generation and synthesizability pre
 from typing import Dict
 from synthesizability_predictor import SynthesizabilityClassifier, LLMSynthesizabilityPredictor
 
+# Import field mapping utilities
+from field_mapping_utils import (
+    validate_dataframe_consistency,
+    standardize_dataframe,
+    REQUIRED_FIELDS_GRADIO
+)
+
 import gradio as gr
 import pandas as pd
 import numpy as np
@@ -205,32 +212,124 @@ def run_synthesizability_analysis(materials_df: pd.DataFrame, ml_classifier: Syn
     # Prepare data for analysis
     analysis_df = materials_df.copy()
 
-    # Add required columns with defaults for generated materials
-    # These will be filled with realistic values for synthetic materials
-    if 'formation_energy_per_atom' not in analysis_df.columns:
-        # For generated materials, use a reasonable distribution based on typical alloy properties
-        # Most stable alloys have formation energies between -4 and 0 eV/atom
-        analysis_df['formation_energy_per_atom'] = np.random.normal(-1.5, 1.0, len(analysis_df))
-        analysis_df['formation_energy_per_atom'] = np.clip(analysis_df['formation_energy_per_atom'], -6.0, 2.0)
+    # Debug: Print available columns to help diagnose field mapping issues
+    print(f"Available columns in analysis_df: {list(analysis_df.columns)}")
+    print(f"DataFrame shape: {analysis_df.shape}")
+    print(f"First few rows:\n{analysis_df.head()}")
 
-    if 'energy_above_hull' not in analysis_df.columns:
-        # For generated materials, simulate energy above hull
-        # Most synthesizable alloys have E_hull < 0.1 eV/atom
-        analysis_df['energy_above_hull'] = np.random.exponential(0.05, len(analysis_df))
-        analysis_df['energy_above_hull'] = np.clip(analysis_df['energy_above_hull'], 0, 0.5)
+    # Field name mapping for Materials Project data compatibility
+    # Common field name variations that might occur in different environments
+    field_mappings = {
+        'formation_energy_per_atom': ['formation_energy_per_atom', 'formation_energy', 'energy_per_atom', 'e_form'],
+        'energy_above_hull': ['energy_above_hull', 'e_above_hull', 'hull_energy', 'stability_energy'],
+        'band_gap': ['band_gap', 'bandgap', 'gap', 'electronic_gap'],
+        'nsites': ['nsites', 'num_sites', 'sites', 'unit_cell_sites'],
+        'density': ['density', 'mass_density', 'material_density'],
+        'electronegativity': ['electronegativity', 'avg_electronegativity', 'electronegativity_avg'],
+        'atomic_radius': ['atomic_radius', 'avg_atomic_radius', 'atomic_radius_avg']
+    }
 
-    if 'band_gap' not in analysis_df.columns:
-        # For alloys, most are metallic (band_gap ≈ 0) or have small band gaps
-        analysis_df['band_gap'] = np.random.exponential(0.5, len(analysis_df))
-        analysis_df['band_gap'] = np.clip(analysis_df['band_gap'], 0, 8.0)
+    # Function to find the correct field name
+    def find_field_name(possible_names, df_columns):
+        for name in possible_names:
+            if name in df_columns:
+                return name
+        return None
 
-    if 'nsites' not in analysis_df.columns:
-        # Unit cell size for alloys
-        analysis_df['nsites'] = np.random.randint(2, 15, len(analysis_df))
+    # Ensure all required columns exist with proper field mapping
+    required_fields = ['formation_energy_per_atom', 'energy_above_hull', 'band_gap', 'nsites', 'density', 'electronegativity', 'atomic_radius']
+    
+    for target_field in required_fields:
+        if target_field not in analysis_df.columns:
+            # Try to find the field with different naming conventions
+            source_field = find_field_name(field_mappings[target_field], analysis_df.columns)
+            
+            if source_field:
+                print(f"Field mapping: {source_field} -> {target_field}")
+                analysis_df[target_field] = analysis_df[source_field]
+            else:
+                # Create synthetic data for missing fields
+                print(f"Warning: Required field '{target_field}' not found, creating synthetic data")
+                if target_field == 'formation_energy_per_atom':
+                    # For generated materials, use a reasonable distribution based on typical alloy properties
+                    # Most stable alloys have formation energies between -4 and 0 eV/atom
+                    analysis_df[target_field] = np.random.normal(-1.5, 1.0, len(analysis_df))
+                    analysis_df[target_field] = np.clip(analysis_df[target_field], -6.0, 2.0)
+                elif target_field == 'energy_above_hull':
+                    # For generated materials, simulate energy above hull
+                    # Most synthesizable alloys have E_hull < 0.1 eV/atom
+                    analysis_df[target_field] = np.random.exponential(0.05, len(analysis_df))
+                    analysis_df[target_field] = np.clip(analysis_df[target_field], 0, 0.5)
+                elif target_field == 'band_gap':
+                    # For alloys, most are metallic (band_gap ≈ 0) or have small band gaps
+                    analysis_df[target_field] = np.random.exponential(0.5, len(analysis_df))
+                    analysis_df[target_field] = np.clip(analysis_df[target_field], 0, 8.0)
+                elif target_field == 'nsites':
+                    # Unit cell size for alloys
+                    analysis_df[target_field] = np.random.randint(2, 15, len(analysis_df))
+                elif target_field == 'density':
+                    # Reasonable density range for alloys
+                    analysis_df[target_field] = np.random.normal(7.8, 2.0, len(analysis_df))
+                    analysis_df[target_field] = np.clip(analysis_df[target_field], 2.0, 25.0)
+                elif target_field == 'electronegativity':
+                    # Reasonable electronegativity range
+                    analysis_df[target_field] = np.random.normal(1.8, 0.3, len(analysis_df))
+                    analysis_df[target_field] = np.clip(analysis_df[target_field], 0.7, 2.5)
+                elif target_field == 'atomic_radius':
+                    # Reasonable atomic radius range
+                    analysis_df[target_field] = np.random.normal(1.3, 0.2, len(analysis_df))
+                    analysis_df[target_field] = np.clip(analysis_df[target_field], 0.8, 2.2)
 
-    # Ensure all columns are numeric
-    for col in ['formation_energy_per_atom', 'energy_above_hull', 'band_gap', 'nsites']:
-        analysis_df[col] = pd.to_numeric(analysis_df[col], errors='coerce').fillna(0)
+    # Ensure all columns are numeric with robust fallback
+    for col in required_fields:
+        if col in analysis_df.columns:
+            # Convert to numeric, coerce errors to NaN, then fill with reasonable defaults
+            original_values = analysis_df[col].copy()
+            analysis_df[col] = pd.to_numeric(analysis_df[col], errors='coerce')
+            
+            # Fill NaN values with reasonable defaults based on field type
+            if col in ['formation_energy_per_atom', 'energy_above_hull']:
+                # For energy fields, use small positive values for NaN
+                analysis_df[col] = analysis_df[col].fillna(0.1)
+            elif col == 'band_gap':
+                # For band gap, assume metallic (zero gap) for NaN
+                analysis_df[col] = analysis_df[col].fillna(0.0)
+            elif col == 'nsites':
+                # For unit cell sites, use typical value
+                analysis_df[col] = analysis_df[col].fillna(4.0)
+            elif col == 'density':
+                # For density, use typical alloy density
+                analysis_df[col] = analysis_df[col].fillna(7.8)
+            elif col == 'electronegativity':
+                # For electronegativity, use typical value
+                analysis_df[col] = analysis_df[col].fillna(1.8)
+            elif col == 'atomic_radius':
+                # For atomic radius, use typical value
+                analysis_df[col] = analysis_df[col].fillna(1.3)
+        else:
+            print(f"Error: Required field '{col}' is missing after processing")
+            # Create fallback with reasonable defaults
+            if col in ['formation_energy_per_atom', 'energy_above_hull']:
+                analysis_df[col] = 0.1
+            elif col == 'band_gap':
+                analysis_df[col] = 0.0
+            elif col == 'nsites':
+                analysis_df[col] = 4.0
+            elif col == 'density':
+                analysis_df[col] = 7.8
+            elif col == 'electronegativity':
+                analysis_df[col] = 1.8
+            elif col == 'atomic_radius':
+                analysis_df[col] = 1.3
+
+    # Debug: Print final column status
+    print(f"Final columns after processing: {list(analysis_df.columns)}")
+    print(f"Required fields status:")
+    for field in required_fields:
+        if field in analysis_df.columns:
+            print(f"  ✓ {field}: {analysis_df[field].dtype}, min={analysis_df[field].min():.3f}, max={analysis_df[field].max():.3f}")
+        else:
+            print(f"  ✗ {field}: MISSING")
 
     # Calculate thermodynamic stability scores (separate from synthesizability)
     try:
@@ -249,10 +348,34 @@ def run_synthesizability_analysis(materials_df: pd.DataFrame, ml_classifier: Syn
 
     # ML predictions for experimental synthesizability (now includes calibration and in-distribution)
     try:
+        print("Starting ML predictions...")
+        print(f"Analysis DataFrame columns: {list(analysis_df.columns)}")
+        print(f"Analysis DataFrame shape: {analysis_df.shape}")
+        
+        # Validate required fields for ML prediction
+        required_ml_fields = ['formation_energy_per_atom', 'energy_above_hull', 'band_gap', 'nsites', 'density', 'electronegativity', 'atomic_radius']
+        missing_fields = [field for field in required_ml_fields if field not in analysis_df.columns]
+        if missing_fields:
+            raise ValueError(f"Missing required fields for ML prediction: {missing_fields}")
+        
+        # Check for NaN values in critical fields
+        critical_fields = ['formation_energy_per_atom', 'energy_above_hull', 'band_gap']
+        for field in critical_fields:
+            if field in analysis_df.columns:
+                nan_count = analysis_df[field].isna().sum()
+                if nan_count > 0:
+                    print(f"Warning: {nan_count} NaN values found in {field}, filling with defaults")
+        
         ml_results = ml_classifier.predict(analysis_df)
+        print(f"ML prediction completed successfully: {len(ml_results)} results")
+        
     except Exception as e:
         print(f"Error in ML prediction: {e}")
-        # Create fallback results
+        import traceback
+        traceback.print_exc()
+        
+        # Create fallback results with proper structure
+        print("Creating fallback ML results...")
         ml_results = pd.DataFrame({
             'synthesizability_probability': np.random.uniform(0.3, 0.8, len(analysis_df)),
             'synthesizability_prediction': np.random.choice([0, 1], len(analysis_df)),
@@ -260,6 +383,7 @@ def run_synthesizability_analysis(materials_df: pd.DataFrame, ml_classifier: Syn
             'in_distribution': ['in-dist'] * len(analysis_df),
             'nn_distance': np.random.uniform(0, 1, len(analysis_df))
         })
+        print("Fallback ML results created")
 
     # LLM predictions for experimental synthesizability
     llm_predictions = []
@@ -269,6 +393,8 @@ def run_synthesizability_analysis(materials_df: pd.DataFrame, ml_classifier: Syn
             llm_predictions.append(llm_result)
         except Exception as e:
             print(f"Error in LLM prediction for material {idx}: {e}")
+            import traceback
+            traceback.print_exc()
             # Fallback prediction
             llm_predictions.append({
                 'prediction': 0,

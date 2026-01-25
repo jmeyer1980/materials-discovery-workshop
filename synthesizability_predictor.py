@@ -25,6 +25,13 @@ import warnings
 import os
 warnings.filterwarnings('ignore')
 
+# Import field mapping utilities
+from field_mapping_utils import (
+    validate_dataframe_consistency,
+    standardize_dataframe,
+    REQUIRED_FIELDS_ML_CLASSIFIER
+)
+
 # Try to import pymatgen for atomic weight calculations
 try:
     from pymatgen.core import Composition

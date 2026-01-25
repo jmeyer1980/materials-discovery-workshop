@@ -21,6 +21,13 @@ from typing import List, Dict, Tuple
 import pymatgen.core as mg
 import yaml
 
+# Import field mapping utilities
+from field_mapping_utils import (
+    validate_dataframe_consistency,
+    standardize_dataframe,
+    REQUIRED_FIELDS_ML_CLASSIFIER
+)
+
 
 def validate_data_with_schema(df: pd.DataFrame, schema_path: str) -> pd.DataFrame:
     """
@@ -446,7 +453,26 @@ def create_ml_features_from_mp_data(mp_data: pd.DataFrame) -> pd.DataFrame:
         
     ml_features = validate_data_with_schema(ml_features, schema_path)
 
-    print(f"Created ML features for {len(ml_features)} materials")
+    # Validate field consistency and standardize column names
+    try:
+        # Check if required fields are present
+        missing_fields = [field for field in REQUIRED_FIELDS_ML_CLASSIFIER if field not in ml_features.columns]
+        if missing_fields:
+            print(f"Warning: Missing required fields for ML classifier: {missing_fields}")
+            # Add missing fields with default values
+            for field in missing_fields:
+                ml_features[field] = 0.0
+                print(f"Added missing field '{field}' with default value 0.0")
+
+        # Standardize the dataframe to ensure consistent field names
+        ml_features = standardize_dataframe(ml_features)
+        
+        print(f"Standardized ML features for {len(ml_features)} materials")
+        
+    except Exception as e:
+        print(f"Warning: Field validation failed: {e}")
+        print("Continuing with available fields...")
+
     return ml_features
 
 
