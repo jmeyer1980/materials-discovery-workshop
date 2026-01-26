@@ -1,0 +1,75 @@
+runtime: python312
+
+# Configure the flexible environment
+env: flex
+
+# Set instance class to ensure sufficient RAM
+automatic_scaling:
+  min_num_instances: 1
+  max_num_instances: 10
+  target_cpu_utilization: 0.6
+  target_throughput_utilization: 0.6
+  max_concurrent_requests: 50
+
+# Resource settings - ensure at least 1GB RAM
+resources:
+  cpu: 1
+  memory_gb: 2.0  # 2GB RAM (exceeds the 1GB minimum requirement)
+  disk_size_gb: 10
+
+# Health checks
+readiness_check:
+  path: "/health"
+  check_interval_sec: 5
+  timeout_sec: 4
+  failure_threshold: 2
+  success_threshold: 2
+
+liveness_check:
+  path: "/health"
+  check_interval_sec: 30
+  timeout_sec: 25
+  failure_threshold: 4
+  success_threshold: 2
+
+# Network settings
+network:
+  session_affinity: true
+
+# Handlers
+handlers:
+- url: /.*
+  script: auto
+
+# Environment variables
+env_variables:
+  PORT: 8080
+  DOCKER_DEBUG: "1"
+  PYTHONUNBUFFERED: "1"
+  GRADIO_SERVER_PORT: "8080"
+
+# Runtime configuration
+runtime_config:
+  python_version: "3.12"
+
+# Skip files that are not needed
+skip_files:
+- ^(.*/)?.*\.pyc$
+- ^(.*/)?.*\.pyo$
+- ^(.*/)?.*\.pyd$
+- ^(.*/)?.*\.egg-info$
+- ^(.*/)?node_modules$
+- ^(.*/)?\.git$
+- ^(.*/)?\.vscode$
+- ^(.*/)?\.idea$
+- ^(.*/)?\.pytest_cache$
+- ^(.*/)?__pycache__$
+- ^(.*/)?\.DS_Store$
+- ^(.*/)?\.env$
+- ^(.*/)?\.gitignore$
+- ^(.*/)?\.dockerignore$
+- ^(.*/)?\.gitattributes$
+- ^(.*/)?\.coveragerc$
+- ^(.*/)?\.travis.yml$
+- ^(.*/)?\.circleci$
+- ^(.*/)?\.github$
