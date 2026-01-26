@@ -44,5 +44,9 @@ EXPOSE 8080
 # Set minimum memory limit to 1Gi for Google Cloud Run
 ENV CLOUD_RUN_MEMORY_LIMIT=1Gi
 
+# Enable Docker debug logging and unbuffered Python output
+ENV DOCKER_DEBUG=1
+ENV PYTHONUNBUFFERED=1
+
 # Run the application
 CMD ["python", "gradio_app.py"]

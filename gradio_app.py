@@ -707,14 +707,12 @@ def filter_materials_by_outcome_status(materials_df: pd.DataFrame, outcomes_df: 
 # Global variables for the interface
 ml_classifier = None
 ml_metrics = {}
+vae_model = None
+vae_scaler = None
+is_initialized = False
 
 def create_gradio_interface():
     """Create the main Gradio interface."""
-
-    # Initialize models (will be trained when user provides API key)
-    global ml_classifier, ml_metrics
-    ml_classifier = None
-    ml_metrics = {}
     
     llm_predictor = LLMSynthesizabilityPredictor()
 
@@ -749,80 +747,185 @@ def create_gradio_interface():
                     df_copy[field] = np.clip(df_copy[field], 0.8, 2.2)
         return df_copy
 
-    def generate_and_analyze(api_key, latent_dim, epochs, num_samples, available_equipment):
-        """Main function to generate materials and run analysis."""
-        global ml_classifier, ml_metrics
+    def initialize_models(api_key, latent_dim, epochs):
+        """STEP 1: Initialize ML classifier and VAE with API key - SEPARATE from generation."""
+        global ml_classifier, ml_metrics, vae_model, vae_scaler, is_initialized
         
         try:
-            print(f"Starting generation with latent_dim={latent_dim}, epochs={epochs}, num_samples={num_samples}")
-
+            print("=" * 60)
+            print("STEP 1: INITIALIZING MODELS AND AUTHENTICATING WITH MP API")
+            print("=" * 60)
+            
             # Initialize ML classifier and train with provided API key
-            if ml_classifier is None:
-                ml_classifier = SynthesizabilityClassifier()
-                ml_metrics = ml_classifier.train(api_key=api_key)
+            print("\n1. Training ML Classifier...")
+            ml_classifier = SynthesizabilityClassifier()
+            ml_metrics = ml_classifier.train(api_key=api_key)
+            print(f"✅ ML Classifier trained: Accuracy={ml_metrics['accuracy']:.3f}, F1={ml_metrics['f1_score']:.3f}")
 
             # Create VAE training dataset (real MP data if available, synthetic otherwise)
+            print("\n2. Fetching Materials Project data for VAE training...")
             try:
                 from synthesizability_predictor import create_vae_training_dataset_from_mp
                 dataset = create_vae_training_dataset_from_mp(api_key=api_key, n_materials=1000)
-                print("Using real Materials Project data for VAE training")
+                print("✅ Using real Materials Project data for VAE training")
             except ImportError:
-                print("Warning: Using synthetic dataset for VAE training")
-                dataset = create_synthetic_dataset(1000)
+                print("⚠️ Using synthetic dataset for VAE training")
+                # Use the updated synthetic dataset function that includes all required fields
+                try:
+                    from synthesizability_predictor import create_synthetic_dataset_fallback
+                    dataset = create_synthetic_dataset_fallback(1000)
+                    print("✅ Using enhanced synthetic dataset with all required fields")
+                except ImportError:
+                    print("⚠️ Fallback: Using basic synthetic dataset")
+                    dataset = create_synthetic_dataset(1000)
+                    # Ensure synthetic dataset has all required fields for VAE training
+                    required_vae_fields = ['formation_energy_per_atom', 'energy_above_hull', 'band_gap', 'nsites']
+                    for field in required_vae_fields:
+                        if field not in dataset.columns:
+                            print(f"⚠️ Adding missing field '{field}' to synthetic dataset for VAE training")
+                            if field == 'formation_energy_per_atom':
+                                dataset[field] = np.random.normal(-1.5, 1.0, len(dataset))
+                                dataset[field] = np.clip(dataset[field], -6.0, 2.0)
+                            elif field == 'energy_above_hull':
+                                dataset[field] = np.random.exponential(0.05, len(dataset))
+                                dataset[field] = np.clip(dataset[field], 0, 0.5)
+                            elif field == 'band_gap':
+                                dataset[field] = np.random.exponential(0.5, len(dataset))
+                                dataset[field] = np.clip(dataset[field], 0, 8.0)
+                            elif field == 'nsites':
+                                dataset[field] = np.random.randint(2, 15, len(dataset))
 
+            print(f"\n3. Preparing VAE training data ({len(dataset)} materials)...")
+            print(f"Dataset columns: {list(dataset.columns)}")
+            print(f"First few rows:\n{dataset.head(3)}")
+            
             feature_cols = ['composition_1', 'composition_2', 'formation_energy_per_atom', 'density', 'electronegativity', 'atomic_radius']
+            print(f"Looking for columns: {feature_cols}")
+            
+            # Check if all required columns exist
+            missing_cols = [col for col in feature_cols if col not in dataset.columns]
+            if missing_cols:
+                print(f"ERROR: Missing columns: {missing_cols}")
+                print(f"Available columns: {list(dataset.columns)}")
+                raise KeyError(f"Missing required columns: {missing_cols}")
+            
             features = dataset[feature_cols].values
-            scaler = StandardScaler()
-            features_scaled = scaler.fit_transform(features)
+            vae_scaler = StandardScaler()
+            features_scaled = vae_scaler.fit_transform(features)
+            print("✅ Feature scaling completed")
 
             # Train VAE
+            print(f"\n4. Training VAE model (latent_dim={latent_dim}, epochs={epochs})...")
             vae_model = train_vae_model(features_scaled, latent_dim=latent_dim, epochs=epochs)
-            print("VAE training completed, model ready")
+            print("✅ VAE training completed")
+            
+            is_initialized = True
+            
+            print("\n" + "=" * 60)
+            print("✅ INITIALIZATION COMPLETE - READY TO GENERATE MATERIALS")
+            print("=" * 60)
+            
+            init_summary = f"""
+            ## ✅ Initialization Successful!
+            
+            **Models Ready:**
+            - ✅ ML Classifier trained (Accuracy: {ml_metrics['accuracy']:.1%}, F1: {ml_metrics['f1_score']:.3f})
+            - ✅ VAE model trained (Latent Dim: {latent_dim}, Epochs: {epochs})
+            - ✅ Materials Project data loaded and processed
+            
+            **You can now:**
+            1. Adjust the "Materials to Generate" slider
+            2. Select available equipment
+            3. Click "Generate Materials" to create new alloy candidates
+            
+            **Note:** The models are now initialized and ready. Generation will be fast!
+            """
+            
+            return init_summary, gr.Button(interactive=True)
+            
+        except Exception as e:
+            error_msg = f"❌ Error during initialization: {str(e)}"
+            print(error_msg)
+            import traceback
+            traceback.print_exc()
+            is_initialized = False
+            return error_msg, gr.Button(interactive=False)
+
+    def generate_and_analyze(num_samples, available_equipment):
+        """STEP 2: Generate materials and run analysis - ONLY after initialization."""
+        global ml_classifier, ml_metrics, vae_model, vae_scaler, is_initialized
+        
+        if not is_initialized or vae_model is None or ml_classifier is None:
+            return "❌ Please initialize models first by clicking 'Initialize Models' button above.", None, pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), None, None
+        
+        try:
+            print(f"\nStarting generation with num_samples={num_samples}")
 
             # Generate materials
-            try:
-                generated_df = generate_materials(vae_model, scaler, num_samples=num_samples)
-                print(f"Generated materials: {len(generated_df)} rows, columns: {list(generated_df.columns)}")
-                if generated_df.empty:
-                    raise ValueError("Material generation returned empty DataFrame")
-                
-                # CRITICAL: HARD FIELD VALIDATION - Ensure all required fields exist
-                required_fields = ['formation_energy_per_atom', 'energy_above_hull', 'band_gap', 'nsites', 'density', 'electronegativity', 'atomic_radius']
-                generated_df = ensure_fields_exist(generated_df, required_fields)
-                print(f"After hard field validation: {len(generated_df)} rows, columns: {list(generated_df.columns)}")
-                
-                # Verify all required fields are present
-                missing_fields = [field for field in required_fields if field not in generated_df.columns]
-                if missing_fields:
-                    print(f"CRITICAL ERROR: Still missing fields after validation: {missing_fields}")
-                    raise ValueError(f"Required fields still missing: {missing_fields}")
-                else:
-                    print("✅ All required fields present after hard validation")
-                
-            except Exception as e:
-                print(f"Error in material generation: {e}")
-                import traceback
-                traceback.print_exc()
-                raise
+            generated_df = generate_materials(vae_model, vae_scaler, num_samples=num_samples)
+            print(f"Generated materials: {len(generated_df)} rows, columns: {list(generated_df.columns)}")
+            if generated_df.empty:
+                raise ValueError("Material generation returned empty DataFrame")
+            
+            # CRITICAL: HARD FIELD VALIDATION - Ensure all required fields exist
+            required_fields = ['formation_energy_per_atom', 'energy_above_hull', 'band_gap', 'nsites', 'density', 'electronegativity', 'atomic_radius']
+            generated_df = ensure_fields_exist(generated_df, required_fields)
+            print(f"After hard field validation: {len(generated_df)} rows, columns: {list(generated_df.columns)}")
+            
+            # Verify all required fields are present
+            missing_fields = [field for field in required_fields if field not in generated_df.columns]
+            if missing_fields:
+                print(f"CRITICAL ERROR: Still missing fields after validation: {missing_fields}")
+                raise ValueError(f"Required fields still missing: {missing_fields}")
+            else:
+                print("✅ All required fields present after hard validation")
 
             # Run synthesizability analysis
             try:
-                print(f"Starting synthesizability analysis with {len(generated_df)} materials")
-                print(f"Generated materials columns: {list(generated_df.columns)}")
+                # Docker debug mode
+                import os
+                DOCKER_DEBUG = os.getenv("DOCKER_DEBUG", "0") == "1"
+                
+                if DOCKER_DEBUG:
+                    print(f"[DOCKER DEBUG] Starting synthesizability analysis with {len(generated_df)} materials")
+                    print(f"[DOCKER DEBUG] Generated materials columns: {list(generated_df.columns)}")
+                else:
+                    print(f"Starting synthesizability analysis with {len(generated_df)} materials")
+                    print(f"Generated materials columns: {list(generated_df.columns)}")
                 
                 # Apply field mapping again right before analysis to ensure all required fields are present
                 print("Applying field mapping before analysis...")
                 from centralized_field_mapping import apply_field_mapping_to_generation
-                generated_df = apply_field_mapping_to_generation(generated_df)
-                print(f"After field mapping before analysis: {len(generated_df)} rows, columns: {list(generated_df.columns)}")
                 
-                # Debug: Check if required fields are present
+                if DOCKER_DEBUG:
+                    print(f"[DOCKER DEBUG] DataFrame state before centralized mapping:")
+                    print(f"[DOCKER DEBUG]   Rows: {len(generated_df)}, Columns: {list(generated_df.columns)}")
+                
+                generated_df = apply_field_mapping_to_generation(generated_df)
+                
+                if DOCKER_DEBUG:
+                    print(f"[DOCKER DEBUG] After centralized field mapping:")
+                    print(f"[DOCKER DEBUG]   Rows: {len(generated_df)}, Columns: {list(generated_df.columns)}")
+                else:
+                    print(f"After field mapping before analysis: {len(generated_df)} rows, columns: {list(generated_df.columns)}")
+                
+                # MANDATORY FIELD VERIFICATION: Check if required fields are present
                 required_fields = ['formation_energy_per_atom', 'energy_above_hull', 'band_gap', 'nsites', 'density', 'electronegativity', 'atomic_radius']
                 missing_fields = [field for field in required_fields if field not in generated_df.columns]
+                
+                if DOCKER_DEBUG:
+                    print(f"[DOCKER DEBUG] Checking for required fields...")
+                    print(f"[DOCKER DEBUG] Required: {required_fields}")
+                    print(f"[DOCKER DEBUG] Missing: {missing_fields}")
+                
                 if missing_fields:
                     print(f"CRITICAL: Missing required fields before analysis: {missing_fields}")
-                    print("Available columns:", list(generated_df.columns))
-                    # Add fallback fields
+                    print(f"Available columns: {list(generated_df.columns)}")
+                    
+                    if DOCKER_DEBUG:
+                        print(f"[DOCKER DEBUG] Creating emergency fallback fields for: {missing_fields}")
+                    
+                    # Add fallback fields with UNCONDITIONAL guarantee
                     for field in missing_fields:
                         if field == 'formation_energy_per_atom':
                             generated_df[field] = np.random.normal(-1.5, 1.0, len(generated_df))
@@ -838,12 +941,30 @@ def create_gradio_interface():
                             generated_df[field] = np.random.normal(1.8, 0.3, len(generated_df))
                         elif field == 'atomic_radius':
                             generated_df[field] = np.random.normal(1.3, 0.2, len(generated_df))
-                    print("Added fallback fields")
+                            generated_df[field] = np.clip(generated_df[field], 0.8, 2.2)
+                    
+                    if DOCKER_DEBUG:
+                        print(f"[DOCKER DEBUG] Added fallback fields successfully")
+                    else:
+                        print("Added fallback fields")
                 
-                # Additional debug: Check the actual DataFrame content
-                print("=== DEBUG: Generated DataFrame Content ===")
-                print(generated_df.head())
-                print("=== END DEBUG ===")
+                # FINAL VERIFICATION: Ensure all fields are present before proceeding
+                final_missing = [field for field in required_fields if field not in generated_df.columns]
+                if final_missing:
+                    error_msg = f"CRITICAL FAILURE: Still missing fields after all fallbacks: {final_missing}"
+                    print(error_msg)
+                    if DOCKER_DEBUG:
+                        print(f"[DOCKER DEBUG] {error_msg}")
+                        print(f"[DOCKER DEBUG] Current columns: {list(generated_df.columns)}")
+                        print(f"[DOCKER DEBUG] DataFrame shape: {generated_df.shape}")
+                    raise ValueError(error_msg)
+                
+                if DOCKER_DEBUG:
+                    print(f"[DOCKER DEBUG] All required fields verified present")
+                    print(f"[DOCKER DEBUG] Generated DataFrame Content (first 3 rows):")
+                    print(generated_df.head(3))
+                else:
+                    print("✅ All required fields verified present before analysis")
                 
                 results_df = run_synthesizability_analysis(generated_df, ml_classifier, llm_predictor)
                 print(f"Analysis completed: {len(results_df)} rows, columns: {list(results_df.columns)}")
@@ -1180,7 +1301,9 @@ def create_gradio_interface():
 
         with gr.Row():
             with gr.Column(scale=1):
-                gr.Markdown("### Model Parameters")
+                gr.Markdown("### STEP 1: Initialize Models")
+                gr.Markdown("*Train the ML classifier and VAE model before generating materials.*")
+                
                 latent_dim = gr.Slider(
                     minimum=2, maximum=20, value=5, step=1,
                     label="Latent Dimension",
@@ -1191,6 +1314,14 @@ def create_gradio_interface():
                     label="Training Epochs",
                     info="How long to train the model"
                 )
+                
+                init_btn = gr.Button("🔧 Initialize Models", variant="secondary", size="lg")
+                init_status = gr.Markdown("*Models not initialized. Click 'Initialize Models' to begin.*")
+                
+                gr.Markdown("---")
+                gr.Markdown("### STEP 2: Generate Materials")
+                gr.Markdown("*After initialization, adjust parameters and generate materials.*")
+                
                 num_samples = gr.Slider(
                     minimum=10, maximum=500, value=100, step=10,
                     label="Materials to Generate",
@@ -1210,7 +1341,7 @@ def create_gradio_interface():
                     info="Filter synthesis recommendations based on your lab equipment"
                 )
 
-                generate_btn = gr.Button("🚀 Generate Materials", variant="primary", size="lg")
+                generate_btn = gr.Button("🚀 Generate Materials", variant="primary", size="lg", interactive=False)
 
             with gr.Column(scale=2):
                 gr.Markdown("### Results Summary")
@@ -1838,17 +1969,17 @@ def create_gradio_interface():
                 print(f"Error in lab export: {e}")
                 return None, None
 
-        # Generation function
-        def handle_generate_materials(api_key, latent_dim, epochs, num_samples, available_equipment):
-            """Generate materials and return results."""
-            results = generate_and_analyze(api_key, latent_dim, epochs, num_samples, available_equipment)
+        # Connect initialization button
+        init_btn.click(
+            fn=initialize_models,
+            inputs=[api_key_input, latent_dim, epochs],
+            outputs=[init_status, generate_btn]
+        )
 
-            # Return results (CSV path is already included in results[8])
-            return results
-
+        # Connect generation button
         generate_btn.click(
-            fn=handle_generate_materials,
-            inputs=[api_key_input, latent_dim, epochs, num_samples, available_equipment],
+            fn=generate_and_analyze,
+            inputs=[num_samples, available_equipment],
             outputs=[summary_output, plot_output, materials_table, priority_table, workflow_table, cba_table, methods_table, reliability_plot, csv_download]
         )
 

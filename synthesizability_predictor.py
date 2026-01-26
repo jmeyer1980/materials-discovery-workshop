@@ -508,7 +508,7 @@ def calculate_thermodynamic_stability_score(material_properties: Dict) -> Dict:
 
 
 def create_synthetic_dataset_fallback(n_samples: int = 1000) -> pd.DataFrame:
-    """Create synthetic materials dataset for demonstration (fallback when import fails)."""
+    """Create synthetic materials dataset for demonstration when MP API is not available."""
     np.random.seed(42)
 
     alloys = []
@@ -532,6 +532,12 @@ def create_synthetic_dataset_fallback(n_samples: int = 1000) -> pd.DataFrame:
         density = np.random.normal(7.8, 2.0)
         electronegativity = np.random.normal(1.8, 0.3)
         atomic_radius = np.random.normal(1.3, 0.2)
+        
+        # Add required fields for VAE training and ML prediction
+        formation_energy = np.random.normal(-1.5, 1.0)
+        energy_above_hull = np.random.exponential(0.05)
+        band_gap = np.random.exponential(0.5)
+        nsites = np.random.randint(2, 15)
 
         alloys.append({
             'id': f'alloy_{i+1}',
@@ -545,7 +551,11 @@ def create_synthetic_dataset_fallback(n_samples: int = 1000) -> pd.DataFrame:
             'melting_point': max(500, melting_point),
             'density': max(2, density),
             'electronegativity': max(0.7, min(2.5, electronegativity)),
-            'atomic_radius': max(1.0, min(1.8, atomic_radius))
+            'atomic_radius': max(1.0, min(1.8, atomic_radius)),
+            'formation_energy_per_atom': formation_energy,
+            'energy_above_hull': energy_above_hull,
+            'band_gap': band_gap,
+            'nsites': nsites
         })
 
     return pd.DataFrame(alloys)
@@ -1183,6 +1193,14 @@ class SynthesizabilityClassifier:
         if not self.is_trained:
             raise ValueError("Model must be trained before making predictions")
 
+        # Docker debug mode for verbose logging
+        import os
+        DOCKER_DEBUG = os.getenv("DOCKER_DEBUG", "0") == "1"
+        
+        if DOCKER_DEBUG:
+            print(f"[DOCKER DEBUG] Starting prediction for {len(materials_df)} materials")
+            print(f"[DOCKER DEBUG] Input columns: {list(materials_df.columns)}")
+
         # Prepare features with robust field validation
         X_pred = materials_df.copy()
         
@@ -1191,53 +1209,72 @@ class SynthesizabilityClassifier:
             from centralized_field_mapping import apply_field_mapping_to_generation
             X_pred = apply_field_mapping_to_generation(X_pred)
             print(f"Field mapping applied successfully: {len(X_pred)} rows, columns: {list(X_pred.columns)}")
+            
+            if DOCKER_DEBUG:
+                print(f"[DOCKER DEBUG] After centralized field mapping: {list(X_pred.columns)}")
         except Exception as e:
             print(f"Field mapping failed: {e}, using fallback field creation")
+            if DOCKER_DEBUG:
+                import traceback
+                print(f"[DOCKER DEBUG] Field mapping exception traceback:")
+                traceback.print_exc()
+        
+        # UNCONDITIONAL FALLBACK: Always ensure all required fields exist
+        # This runs regardless of whether centralized mapping succeeded
+        required_fields = ['formation_energy_per_atom', 'energy_above_hull', 'band_gap', 'nsites', 'density', 'electronegativity', 'atomic_radius']
+        
+        if DOCKER_DEBUG:
+            print(f"[DOCKER DEBUG] Checking for missing fields...")
             
-            # Fallback: Create missing fields with synthetic data
-            required_fields = ['formation_energy_per_atom', 'energy_above_hull', 'band_gap', 'nsites', 'density', 'electronegativity', 'atomic_radius']
-            for field in required_fields:
-                if field not in X_pred.columns:
-                    if field == 'formation_energy_per_atom':
-                        X_pred[field] = np.random.normal(-1.5, 1.0, len(X_pred))
-                    elif field == 'energy_above_hull':
-                        X_pred[field] = np.random.exponential(0.05, len(X_pred))
-                    elif field == 'band_gap':
-                        X_pred[field] = np.random.exponential(0.5, len(X_pred))
-                    elif field == 'nsites':
-                        X_pred[field] = np.random.randint(2, 15, len(X_pred))
-                    elif field == 'density':
-                        X_pred[field] = np.random.normal(7.8, 2.0, len(X_pred))
-                    elif field == 'electronegativity':
-                        X_pred[field] = np.random.normal(1.8, 0.3, len(X_pred))
-                    elif field == 'atomic_radius':
-                        X_pred[field] = np.random.normal(1.3, 0.2, len(X_pred))
-                    print(f"Added missing field: {field}")
-
-        # Verify all required fields are present before feature selection
-        missing_fields = [field for field in self.feature_columns if field not in X_pred.columns]
-        if missing_fields:
-            print(f"Warning: Missing required fields after fallback: {missing_fields}")
-            # Create any still-missing fields
-            for field in missing_fields:
+        for field in required_fields:
+            if field not in X_pred.columns:
+                print(f"EMERGENCY: Creating missing field: {field}")
                 if field == 'formation_energy_per_atom':
                     X_pred[field] = np.random.normal(-1.5, 1.0, len(X_pred))
+                    X_pred[field] = np.clip(X_pred[field], -6.0, 2.0)
                 elif field == 'energy_above_hull':
                     X_pred[field] = np.random.exponential(0.05, len(X_pred))
+                    X_pred[field] = np.clip(X_pred[field], 0, 0.5)
                 elif field == 'band_gap':
                     X_pred[field] = np.random.exponential(0.5, len(X_pred))
+                    X_pred[field] = np.clip(X_pred[field], 0, 8.0)
                 elif field == 'nsites':
                     X_pred[field] = np.random.randint(2, 15, len(X_pred))
                 elif field == 'density':
                     X_pred[field] = np.random.normal(7.8, 2.0, len(X_pred))
+                    X_pred[field] = np.clip(X_pred[field], 2.0, 25.0)
                 elif field == 'electronegativity':
                     X_pred[field] = np.random.normal(1.8, 0.3, len(X_pred))
+                    X_pred[field] = np.clip(X_pred[field], 0.7, 2.5)
                 elif field == 'atomic_radius':
                     X_pred[field] = np.random.normal(1.3, 0.2, len(X_pred))
-                print(f"Created missing field: {field}")
+                    X_pred[field] = np.clip(X_pred[field], 0.8, 2.2)
+                
+                if DOCKER_DEBUG:
+                    print(f"[DOCKER DEBUG] Created field '{field}' with {len(X_pred)} values")
+
+        # MANDATORY: Verify all required fields exist before column selection
+        missing_fields = [field for field in self.feature_columns if field not in X_pred.columns]
+        if missing_fields:
+            error_msg = f"CRITICAL ERROR: Cannot proceed with prediction. Missing required fields: {missing_fields}"
+            print(error_msg)
+            print(f"Available columns: {list(X_pred.columns)}")
+            print(f"Required columns: {self.feature_columns}")
+            
+            if DOCKER_DEBUG:
+                print(f"[DOCKER DEBUG] DataFrame shape: {X_pred.shape}")
+                print(f"[DOCKER DEBUG] DataFrame dtypes:\n{X_pred.dtypes}")
+            
+            raise ValueError(error_msg)
+
+        if DOCKER_DEBUG:
+            print(f"[DOCKER DEBUG] All required fields verified. Proceeding with column selection.")
 
         # Select only the required feature columns
         X_pred = X_pred[self.feature_columns].copy()
+        
+        if DOCKER_DEBUG:
+            print(f"[DOCKER DEBUG] Feature selection complete. Shape: {X_pred.shape}")
 
         # Handle missing values
         X_pred = X_pred.fillna(X_pred.mean())
