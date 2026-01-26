@@ -9,8 +9,6 @@
 .git
 .gitignore
 README.md
-Dockerfile*
-docker-compose*
 node_modules/
 npm-debug.log
 .env
