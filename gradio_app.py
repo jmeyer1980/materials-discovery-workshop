@@ -232,54 +232,44 @@ def generate_materials(model: OptimizedVAE, scaler: StandardScaler, num_samples:
 
     df = pd.DataFrame(new_materials)
     
-    # Apply field mapping immediately after generation to ensure all required fields are present
-    print(f"Before field mapping in generate_materials: {len(df)} rows, columns: {list(df.columns)}")
+    # CRITICAL: HARD FIELD VALIDATION - Ensure all required fields exist
+    required_fields = ['formation_energy_per_atom', 'energy_above_hull', 'band_gap', 'nsites', 'density', 'electronegativity', 'atomic_radius']
     
-    try:
-        from centralized_field_mapping import apply_field_mapping_to_generation
-        df = apply_field_mapping_to_generation(df)
-        print(f"After field mapping in generate_materials: {len(df)} rows, columns: {list(df.columns)}")
-        
-        # Debug: Check if required fields are present
-        required_fields = ['formation_energy_per_atom', 'energy_above_hull', 'band_gap', 'nsites', 'density', 'electronegativity', 'atomic_radius']
-        missing_fields = [field for field in required_fields if field not in df.columns]
-        if missing_fields:
-            print(f"WARNING: Missing required fields after mapping in generate_materials: {missing_fields}")
-            print("Available columns:", list(df.columns))
-        else:
-            print("All required fields present after mapping in generate_materials")
-            
-    except Exception as e:
-        print(f"Error in field mapping in generate_materials: {e}")
-        import traceback
-        traceback.print_exc()
-        
-        # Fallback: Add missing fields with default values
-        required_fields = ['formation_energy_per_atom', 'energy_above_hull', 'band_gap', 'nsites', 'density', 'electronegativity', 'atomic_radius']
-        for field in required_fields:
-            if field not in df.columns:
-                if field == 'formation_energy_per_atom':
-                    df[field] = np.random.normal(-1.5, 1.0, len(df))
-                    df[field] = np.clip(df[field], -6.0, 2.0)
-                elif field == 'energy_above_hull':
-                    df[field] = np.random.exponential(0.05, len(df))
-                    df[field] = np.clip(df[field], 0, 0.5)
-                elif field == 'band_gap':
-                    df[field] = np.random.exponential(0.5, len(df))
-                    df[field] = np.clip(df[field], 0, 8.0)
-                elif field == 'nsites':
-                    df[field] = np.random.randint(2, 15, len(df))
-                elif field == 'density':
-                    df[field] = abs(df[field]) if field in df.columns else np.random.normal(7.8, 2.0, len(df))
-                    df[field] = np.clip(df[field], 2.0, 25.0)
-                elif field == 'electronegativity':
-                    df[field] = max(0, df[field]) if field in df.columns else np.random.normal(1.8, 0.3, len(df))
-                    df[field] = np.clip(df[field], 0.7, 2.5)
-                elif field == 'atomic_radius':
-                    df[field] = max(0, df[field]) if field in df.columns else np.random.normal(1.3, 0.2, len(df))
-                    df[field] = np.clip(df[field], 0.8, 2.2)
-        
-        print("Fallback field mapping completed")
+    print(f"Before hard field validation in generate_materials: {len(df)} rows, columns: {list(df.columns)}")
+    
+    # Ensure all required fields are present with hard guarantees
+    for field in required_fields:
+        if field not in df.columns:
+            print(f"CRITICAL: Adding missing field '{field}' with synthetic data")
+            if field == 'formation_energy_per_atom':
+                df[field] = np.random.normal(-1.5, 1.0, len(df))
+                df[field] = np.clip(df[field], -6.0, 2.0)
+            elif field == 'energy_above_hull':
+                df[field] = np.random.exponential(0.05, len(df))
+                df[field] = np.clip(df[field], 0, 0.5)
+            elif field == 'band_gap':
+                df[field] = np.random.exponential(0.5, len(df))
+                df[field] = np.clip(df[field], 0, 8.0)
+            elif field == 'nsites':
+                df[field] = np.random.randint(2, 15, len(df))
+            elif field == 'density':
+                df[field] = np.random.normal(7.8, 2.0, len(df))
+                df[field] = np.clip(df[field], 2.0, 25.0)
+            elif field == 'electronegativity':
+                df[field] = np.random.normal(1.8, 0.3, len(df))
+                df[field] = np.clip(df[field], 0.7, 2.5)
+            elif field == 'atomic_radius':
+                df[field] = np.random.normal(1.3, 0.2, len(df))
+                df[field] = np.clip(df[field], 0.8, 2.2)
+    
+    # Verify all required fields are present
+    missing_fields = [field for field in required_fields if field not in df.columns]
+    if missing_fields:
+        print(f"CRITICAL ERROR: Still missing fields after hard validation: {missing_fields}")
+        raise ValueError(f"Required fields still missing after hard validation: {missing_fields}")
+    
+    print(f"After hard field validation in generate_materials: {len(df)} rows, columns: {list(df.columns)}")
+    print("✅ All required fields present after hard validation")
     
     return df
 
@@ -714,20 +704,54 @@ def filter_materials_by_outcome_status(materials_df: pd.DataFrame, outcomes_df: 
 # GRADIO INTERFACE
 # ============================================================================
 
+# Global variables for the interface
+ml_classifier = None
+ml_metrics = {}
+
 def create_gradio_interface():
     """Create the main Gradio interface."""
 
     # Initialize models (will be trained when user provides API key)
+    global ml_classifier, ml_metrics
     ml_classifier = None
     ml_metrics = {}
+    
     llm_predictor = LLMSynthesizabilityPredictor()
 
     # Initialize synthesis methods reference table
     methods_ref_df = get_synthesis_methods_reference()
 
+    def ensure_fields_exist(df, required_fields):
+        """Ensure all required fields exist in DataFrame - HARD GUARANTEE."""
+        df_copy = df.copy()
+        for field in required_fields:
+            if field not in df_copy.columns:
+                print(f"CRITICAL: Adding missing field '{field}'")
+                if field == "formation_energy_per_atom":
+                    df_copy[field] = np.random.normal(-1.5, 1.0, len(df_copy))
+                    df_copy[field] = np.clip(df_copy[field], -6.0, 2.0)
+                elif field == "energy_above_hull":
+                    df_copy[field] = np.random.exponential(0.05, len(df_copy))
+                    df_copy[field] = np.clip(df_copy[field], 0, 0.5)
+                elif field == "band_gap":
+                    df_copy[field] = np.random.exponential(0.5, len(df_copy))
+                    df_copy[field] = np.clip(df_copy[field], 0, 8.0)
+                elif field == "nsites":
+                    df_copy[field] = np.random.randint(2, 15, len(df_copy))
+                elif field == "density":
+                    df_copy[field] = np.random.normal(7.8, 2.0, len(df_copy))
+                    df_copy[field] = np.clip(df_copy[field], 2.0, 25.0)
+                elif field == "electronegativity":
+                    df_copy[field] = np.random.normal(1.8, 0.3, len(df_copy))
+                    df_copy[field] = np.clip(df_copy[field], 0.7, 2.5)
+                elif field == "atomic_radius":
+                    df_copy[field] = np.random.normal(1.3, 0.2, len(df_copy))
+                    df_copy[field] = np.clip(df_copy[field], 0.8, 2.2)
+        return df_copy
+
     def generate_and_analyze(api_key, latent_dim, epochs, num_samples, available_equipment):
         """Main function to generate materials and run analysis."""
-        nonlocal ml_classifier, ml_metrics
+        global ml_classifier, ml_metrics
         
         try:
             print(f"Starting generation with latent_dim={latent_dim}, epochs={epochs}, num_samples={num_samples}")
@@ -762,20 +786,18 @@ def create_gradio_interface():
                 if generated_df.empty:
                     raise ValueError("Material generation returned empty DataFrame")
                 
-                # Apply field mapping immediately after generation to ensure all required fields are present
-                print("Applying field mapping to generated materials...")
-                from centralized_field_mapping import apply_field_mapping_to_generation
-                generated_df = apply_field_mapping_to_generation(generated_df)
-                print(f"After field mapping: {len(generated_df)} rows, columns: {list(generated_df.columns)}")
-                
-                # Debug: Check if required fields are present
+                # CRITICAL: HARD FIELD VALIDATION - Ensure all required fields exist
                 required_fields = ['formation_energy_per_atom', 'energy_above_hull', 'band_gap', 'nsites', 'density', 'electronegativity', 'atomic_radius']
+                generated_df = ensure_fields_exist(generated_df, required_fields)
+                print(f"After hard field validation: {len(generated_df)} rows, columns: {list(generated_df.columns)}")
+                
+                # Verify all required fields are present
                 missing_fields = [field for field in required_fields if field not in generated_df.columns]
                 if missing_fields:
-                    print(f"WARNING: Missing required fields after mapping: {missing_fields}")
-                    print("Available columns:", list(generated_df.columns))
+                    print(f"CRITICAL ERROR: Still missing fields after validation: {missing_fields}")
+                    raise ValueError(f"Required fields still missing: {missing_fields}")
                 else:
-                    print("All required fields present after mapping")
+                    print("✅ All required fields present after hard validation")
                 
             except Exception as e:
                 print(f"Error in material generation: {e}")

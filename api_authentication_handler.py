@@ -276,6 +276,20 @@ def validate_and_use_api_key(api_key: Optional[str] = None) -> bool:
         logger.info(handler.get_fallback_message())
         return False
 
+def validate_api_key(api_key: Optional[str] = None) -> bool:
+    """
+    Standalone function to validate API key (for backward compatibility).
+    
+    Args:
+        api_key: Optional API key
+        
+    Returns:
+        Boolean indicating whether the API key is valid
+    """
+    handler = APIAuthenticationHandler(api_key)
+    validation_result = handler.validate_api_key()
+    return validation_result['valid']
+
 # Example usage and testing
 if __name__ == "__main__":
     print("=== API Authentication Handler Test ===")
