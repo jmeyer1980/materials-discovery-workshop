@@ -6,11 +6,11 @@ Provides interactive interface for materials generation and synthesizability pre
 from typing import Dict
 from synthesizability_predictor import SynthesizabilityClassifier, LLMSynthesizabilityPredictor
 
-# Import field mapping utilities
-from field_mapping_utils import (
-    validate_dataframe_consistency,
-    standardize_dataframe,
-    REQUIRED_FIELDS_GRADIO
+# Import centralized field mapping utilities
+from centralized_field_mapping import (
+    apply_field_mapping_to_generation,
+    log_dataframe_state,
+    REQUIRED_FIELDS
 )
 
 import gradio as gr
@@ -113,6 +113,12 @@ def create_synthetic_dataset(n_samples: int = 1000) -> pd.DataFrame:
         density = np.random.normal(7.8, 2.0)
         electronegativity = np.random.normal(1.8, 0.3)
         atomic_radius = np.random.normal(1.3, 0.2)
+        
+        # Add required fields for ML prediction
+        formation_energy = np.random.normal(-1.5, 1.0)
+        energy_above_hull = np.random.exponential(0.05)
+        band_gap = np.random.exponential(0.5)
+        nsites = np.random.randint(2, 15)
 
         alloys.append({
             'id': f'alloy_{i+1}',
@@ -126,7 +132,11 @@ def create_synthetic_dataset(n_samples: int = 1000) -> pd.DataFrame:
             'melting_point': max(500, melting_point),
             'density': max(2, density),
             'electronegativity': max(0.7, min(2.5, electronegativity)),
-            'atomic_radius': max(1.0, min(1.8, atomic_radius))
+            'atomic_radius': max(1.0, min(1.8, atomic_radius)),
+            'formation_energy_per_atom': formation_energy,
+            'energy_above_hull': energy_above_hull,
+            'band_gap': band_gap,
+            'nsites': nsites
         })
 
     return pd.DataFrame(alloys)
@@ -189,6 +199,18 @@ def generate_materials(model: OptimizedVAE, scaler: StandardScaler, num_samples:
         # Assert composition validity (within floating point tolerance)
         assert abs(comp1 + comp2 - 1.0) < 1e-6, f"Composition constraint violated: {comp1} + {comp2} = {comp1 + comp2}"
 
+        # Generate synthetic properties for required ML fields
+        formation_energy = np.random.normal(-1.5, 1.0)
+        formation_energy = np.clip(formation_energy, -6.0, 2.0)
+        
+        energy_above_hull = np.random.exponential(0.05)
+        energy_above_hull = np.clip(energy_above_hull, 0, 0.5)
+        
+        band_gap = np.random.exponential(0.5)
+        band_gap = np.clip(band_gap, 0, 8.0)
+        
+        nsites = np.random.randint(2, 15)
+
         material = {
             'id': f'generated_{i+1}',
             'element_1': elem1,
@@ -200,11 +222,66 @@ def generate_materials(model: OptimizedVAE, scaler: StandardScaler, num_samples:
             'density': abs(features[3]),
             'electronegativity': max(0, features[4]),
             'atomic_radius': max(0, features[5]),
+            'formation_energy_per_atom': formation_energy,
+            'energy_above_hull': energy_above_hull,
+            'band_gap': band_gap,
+            'nsites': nsites,
             'is_generated': True
         }
         new_materials.append(material)
 
-    return pd.DataFrame(new_materials)
+    df = pd.DataFrame(new_materials)
+    
+    # Apply field mapping immediately after generation to ensure all required fields are present
+    print(f"Before field mapping in generate_materials: {len(df)} rows, columns: {list(df.columns)}")
+    
+    try:
+        from centralized_field_mapping import apply_field_mapping_to_generation
+        df = apply_field_mapping_to_generation(df)
+        print(f"After field mapping in generate_materials: {len(df)} rows, columns: {list(df.columns)}")
+        
+        # Debug: Check if required fields are present
+        required_fields = ['formation_energy_per_atom', 'energy_above_hull', 'band_gap', 'nsites', 'density', 'electronegativity', 'atomic_radius']
+        missing_fields = [field for field in required_fields if field not in df.columns]
+        if missing_fields:
+            print(f"WARNING: Missing required fields after mapping in generate_materials: {missing_fields}")
+            print("Available columns:", list(df.columns))
+        else:
+            print("All required fields present after mapping in generate_materials")
+            
+    except Exception as e:
+        print(f"Error in field mapping in generate_materials: {e}")
+        import traceback
+        traceback.print_exc()
+        
+        # Fallback: Add missing fields with default values
+        required_fields = ['formation_energy_per_atom', 'energy_above_hull', 'band_gap', 'nsites', 'density', 'electronegativity', 'atomic_radius']
+        for field in required_fields:
+            if field not in df.columns:
+                if field == 'formation_energy_per_atom':
+                    df[field] = np.random.normal(-1.5, 1.0, len(df))
+                    df[field] = np.clip(df[field], -6.0, 2.0)
+                elif field == 'energy_above_hull':
+                    df[field] = np.random.exponential(0.05, len(df))
+                    df[field] = np.clip(df[field], 0, 0.5)
+                elif field == 'band_gap':
+                    df[field] = np.random.exponential(0.5, len(df))
+                    df[field] = np.clip(df[field], 0, 8.0)
+                elif field == 'nsites':
+                    df[field] = np.random.randint(2, 15, len(df))
+                elif field == 'density':
+                    df[field] = abs(df[field]) if field in df.columns else np.random.normal(7.8, 2.0, len(df))
+                    df[field] = np.clip(df[field], 2.0, 25.0)
+                elif field == 'electronegativity':
+                    df[field] = max(0, df[field]) if field in df.columns else np.random.normal(1.8, 0.3, len(df))
+                    df[field] = np.clip(df[field], 0.7, 2.5)
+                elif field == 'atomic_radius':
+                    df[field] = max(0, df[field]) if field in df.columns else np.random.normal(1.3, 0.2, len(df))
+                    df[field] = np.clip(df[field], 0.8, 2.2)
+        
+        print("Fallback field mapping completed")
+    
+    return df
 
 def run_synthesizability_analysis(materials_df: pd.DataFrame, ml_classifier: SynthesizabilityClassifier,
                                 llm_predictor: LLMSynthesizabilityPredictor) -> pd.DataFrame:
@@ -217,114 +294,127 @@ def run_synthesizability_analysis(materials_df: pd.DataFrame, ml_classifier: Syn
     print(f"DataFrame shape: {analysis_df.shape}")
     print(f"First few rows:\n{analysis_df.head()}")
 
-    # Field name mapping for Materials Project data compatibility
-    # Common field name variations that might occur in different environments
-    field_mappings = {
-        'formation_energy_per_atom': ['formation_energy_per_atom', 'formation_energy', 'energy_per_atom', 'e_form'],
-        'energy_above_hull': ['energy_above_hull', 'e_above_hull', 'hull_energy', 'stability_energy'],
-        'band_gap': ['band_gap', 'bandgap', 'gap', 'electronic_gap'],
-        'nsites': ['nsites', 'num_sites', 'sites', 'unit_cell_sites'],
-        'density': ['density', 'mass_density', 'material_density'],
-        'electronegativity': ['electronegativity', 'avg_electronegativity', 'electronegativity_avg'],
-        'atomic_radius': ['atomic_radius', 'avg_atomic_radius', 'atomic_radius_avg']
-    }
+    # Use centralized field mapping to ensure all required fields are present
+    try:
+        print("Applying centralized field mapping...")
+        log_dataframe_state(analysis_df, "Before centralized field mapping")
+        
+        # Apply centralized field mapping
+        analysis_df = apply_field_mapping_to_generation(analysis_df)
+        
+        print("Centralized field mapping completed successfully")
+    except Exception as e:
+        print(f"Centralized field mapping failed: {e}")
+        print("Falling back to manual field mapping...")
+        
+        # Fallback to manual field mapping if centralized mapping fails
+        field_mappings = {
+            'formation_energy_per_atom': ['formation_energy_per_atom', 'formation_energy', 'energy_per_atom', 'e_form'],
+            'energy_above_hull': ['energy_above_hull', 'e_above_hull', 'hull_energy', 'stability_energy'],
+            'band_gap': ['band_gap', 'bandgap', 'gap', 'electronic_gap'],
+            'nsites': ['nsites', 'num_sites', 'sites', 'unit_cell_sites'],
+            'density': ['density', 'mass_density', 'material_density'],
+            'electronegativity': ['electronegativity', 'avg_electronegativity', 'electronegativity_avg'],
+            'atomic_radius': ['atomic_radius', 'avg_atomic_radius', 'atomic_radius_avg']
+        }
 
-    # Function to find the correct field name
-    def find_field_name(possible_names, df_columns):
-        for name in possible_names:
-            if name in df_columns:
-                return name
-        return None
+        # Function to find the correct field name
+        def find_field_name(possible_names, df_columns):
+            for name in possible_names:
+                if name in df_columns:
+                    return name
+            return None
 
-    # Ensure all required columns exist with proper field mapping
-    required_fields = ['formation_energy_per_atom', 'energy_above_hull', 'band_gap', 'nsites', 'density', 'electronegativity', 'atomic_radius']
-    
-    for target_field in required_fields:
-        if target_field not in analysis_df.columns:
-            # Try to find the field with different naming conventions
-            source_field = find_field_name(field_mappings[target_field], analysis_df.columns)
-            
-            if source_field:
-                print(f"Field mapping: {source_field} -> {target_field}")
-                analysis_df[target_field] = analysis_df[source_field]
+        # Ensure all required columns exist with proper field mapping
+        required_fields = ['formation_energy_per_atom', 'energy_above_hull', 'band_gap', 'nsites', 'density', 'electronegativity', 'atomic_radius']
+        
+        for target_field in required_fields:
+            if target_field not in analysis_df.columns:
+                # Try to find the field with different naming conventions
+                source_field = find_field_name(field_mappings[target_field], analysis_df.columns)
+                
+                if source_field:
+                    print(f"Field mapping: {source_field} -> {target_field}")
+                    analysis_df[target_field] = analysis_df[source_field]
+                else:
+                    # Create synthetic data for missing fields
+                    print(f"Warning: Required field '{target_field}' not found, creating synthetic data")
+                    if target_field == 'formation_energy_per_atom':
+                        # For generated materials, use a reasonable distribution based on typical alloy properties
+                        # Most stable alloys have formation energies between -4 and 0 eV/atom
+                        analysis_df[target_field] = np.random.normal(-1.5, 1.0, len(analysis_df))
+                        analysis_df[target_field] = np.clip(analysis_df[target_field], -6.0, 2.0)
+                    elif target_field == 'energy_above_hull':
+                        # For generated materials, simulate energy above hull
+                        # Most synthesizable alloys have E_hull < 0.1 eV/atom
+                        analysis_df[target_field] = np.random.exponential(0.05, len(analysis_df))
+                        analysis_df[target_field] = np.clip(analysis_df[target_field], 0, 0.5)
+                    elif target_field == 'band_gap':
+                        # For alloys, most are metallic (band_gap ≈ 0) or have small band gaps
+                        analysis_df[target_field] = np.random.exponential(0.5, len(analysis_df))
+                        analysis_df[target_field] = np.clip(analysis_df[target_field], 0, 8.0)
+                    elif target_field == 'nsites':
+                        # Unit cell size for alloys
+                        analysis_df[target_field] = np.random.randint(2, 15, len(analysis_df))
+                    elif target_field == 'density':
+                        # Reasonable density range for alloys
+                        analysis_df[target_field] = np.random.normal(7.8, 2.0, len(analysis_df))
+                        analysis_df[target_field] = np.clip(analysis_df[target_field], 2.0, 25.0)
+                    elif target_field == 'electronegativity':
+                        # Reasonable electronegativity range
+                        analysis_df[target_field] = np.random.normal(1.8, 0.3, len(analysis_df))
+                        analysis_df[target_field] = np.clip(analysis_df[target_field], 0.7, 2.5)
+                    elif target_field == 'atomic_radius':
+                        # Reasonable atomic radius range
+                        analysis_df[target_field] = np.random.normal(1.3, 0.2, len(analysis_df))
+                        analysis_df[target_field] = np.clip(analysis_df[target_field], 0.8, 2.2)
+
+        # Ensure all columns are numeric with robust fallback
+        for col in required_fields:
+            if col in analysis_df.columns:
+                # Convert to numeric, coerce errors to NaN, then fill with reasonable defaults
+                original_values = analysis_df[col].copy()
+                analysis_df[col] = pd.to_numeric(analysis_df[col], errors='coerce')
+                
+                # Fill NaN values with reasonable defaults based on field type
+                if col in ['formation_energy_per_atom', 'energy_above_hull']:
+                    # For energy fields, use small positive values for NaN
+                    analysis_df[col] = analysis_df[col].fillna(0.1)
+                elif col == 'band_gap':
+                    # For band gap, assume metallic (zero gap) for NaN
+                    analysis_df[col] = analysis_df[col].fillna(0.0)
+                elif col == 'nsites':
+                    # For unit cell sites, use typical value
+                    analysis_df[col] = analysis_df[col].fillna(4.0)
+                elif col == 'density':
+                    # For density, use typical alloy density
+                    analysis_df[col] = analysis_df[col].fillna(7.8)
+                elif col == 'electronegativity':
+                    # For electronegativity, use typical value
+                    analysis_df[col] = analysis_df[col].fillna(1.8)
+                elif col == 'atomic_radius':
+                    # For atomic radius, use typical value
+                    analysis_df[col] = analysis_df[col].fillna(1.3)
             else:
-                # Create synthetic data for missing fields
-                print(f"Warning: Required field '{target_field}' not found, creating synthetic data")
-                if target_field == 'formation_energy_per_atom':
-                    # For generated materials, use a reasonable distribution based on typical alloy properties
-                    # Most stable alloys have formation energies between -4 and 0 eV/atom
-                    analysis_df[target_field] = np.random.normal(-1.5, 1.0, len(analysis_df))
-                    analysis_df[target_field] = np.clip(analysis_df[target_field], -6.0, 2.0)
-                elif target_field == 'energy_above_hull':
-                    # For generated materials, simulate energy above hull
-                    # Most synthesizable alloys have E_hull < 0.1 eV/atom
-                    analysis_df[target_field] = np.random.exponential(0.05, len(analysis_df))
-                    analysis_df[target_field] = np.clip(analysis_df[target_field], 0, 0.5)
-                elif target_field == 'band_gap':
-                    # For alloys, most are metallic (band_gap ≈ 0) or have small band gaps
-                    analysis_df[target_field] = np.random.exponential(0.5, len(analysis_df))
-                    analysis_df[target_field] = np.clip(analysis_df[target_field], 0, 8.0)
-                elif target_field == 'nsites':
-                    # Unit cell size for alloys
-                    analysis_df[target_field] = np.random.randint(2, 15, len(analysis_df))
-                elif target_field == 'density':
-                    # Reasonable density range for alloys
-                    analysis_df[target_field] = np.random.normal(7.8, 2.0, len(analysis_df))
-                    analysis_df[target_field] = np.clip(analysis_df[target_field], 2.0, 25.0)
-                elif target_field == 'electronegativity':
-                    # Reasonable electronegativity range
-                    analysis_df[target_field] = np.random.normal(1.8, 0.3, len(analysis_df))
-                    analysis_df[target_field] = np.clip(analysis_df[target_field], 0.7, 2.5)
-                elif target_field == 'atomic_radius':
-                    # Reasonable atomic radius range
-                    analysis_df[target_field] = np.random.normal(1.3, 0.2, len(analysis_df))
-                    analysis_df[target_field] = np.clip(analysis_df[target_field], 0.8, 2.2)
-
-    # Ensure all columns are numeric with robust fallback
-    for col in required_fields:
-        if col in analysis_df.columns:
-            # Convert to numeric, coerce errors to NaN, then fill with reasonable defaults
-            original_values = analysis_df[col].copy()
-            analysis_df[col] = pd.to_numeric(analysis_df[col], errors='coerce')
-            
-            # Fill NaN values with reasonable defaults based on field type
-            if col in ['formation_energy_per_atom', 'energy_above_hull']:
-                # For energy fields, use small positive values for NaN
-                analysis_df[col] = analysis_df[col].fillna(0.1)
-            elif col == 'band_gap':
-                # For band gap, assume metallic (zero gap) for NaN
-                analysis_df[col] = analysis_df[col].fillna(0.0)
-            elif col == 'nsites':
-                # For unit cell sites, use typical value
-                analysis_df[col] = analysis_df[col].fillna(4.0)
-            elif col == 'density':
-                # For density, use typical alloy density
-                analysis_df[col] = analysis_df[col].fillna(7.8)
-            elif col == 'electronegativity':
-                # For electronegativity, use typical value
-                analysis_df[col] = analysis_df[col].fillna(1.8)
-            elif col == 'atomic_radius':
-                # For atomic radius, use typical value
-                analysis_df[col] = analysis_df[col].fillna(1.3)
-        else:
-            print(f"Error: Required field '{col}' is missing after processing")
-            # Create fallback with reasonable defaults
-            if col in ['formation_energy_per_atom', 'energy_above_hull']:
-                analysis_df[col] = 0.1
-            elif col == 'band_gap':
-                analysis_df[col] = 0.0
-            elif col == 'nsites':
-                analysis_df[col] = 4.0
-            elif col == 'density':
-                analysis_df[col] = 7.8
-            elif col == 'electronegativity':
-                analysis_df[col] = 1.8
-            elif col == 'atomic_radius':
-                analysis_df[col] = 1.3
+                print(f"Error: Required field '{col}' is missing after processing")
+                # Create fallback with reasonable defaults
+                if col in ['formation_energy_per_atom', 'energy_above_hull']:
+                    analysis_df[col] = 0.1
+                elif col == 'band_gap':
+                    analysis_df[col] = 0.0
+                elif col == 'nsites':
+                    analysis_df[col] = 4.0
+                elif col == 'density':
+                    analysis_df[col] = 7.8
+                elif col == 'electronegativity':
+                    analysis_df[col] = 1.8
+                elif col == 'atomic_radius':
+                    analysis_df[col] = 1.3
 
     # Debug: Print final column status
     print(f"Final columns after processing: {list(analysis_df.columns)}")
     print(f"Required fields status:")
+    required_fields = ['formation_energy_per_atom', 'energy_above_hull', 'band_gap', 'nsites', 'density', 'electronegativity', 'atomic_radius']
     for field in required_fields:
         if field in analysis_df.columns:
             print(f"  ✓ {field}: {analysis_df[field].dtype}, min={analysis_df[field].min():.3f}, max={analysis_df[field].max():.3f}")
@@ -671,6 +761,22 @@ def create_gradio_interface():
                 print(f"Generated materials: {len(generated_df)} rows, columns: {list(generated_df.columns)}")
                 if generated_df.empty:
                     raise ValueError("Material generation returned empty DataFrame")
+                
+                # Apply field mapping immediately after generation to ensure all required fields are present
+                print("Applying field mapping to generated materials...")
+                from centralized_field_mapping import apply_field_mapping_to_generation
+                generated_df = apply_field_mapping_to_generation(generated_df)
+                print(f"After field mapping: {len(generated_df)} rows, columns: {list(generated_df.columns)}")
+                
+                # Debug: Check if required fields are present
+                required_fields = ['formation_energy_per_atom', 'energy_above_hull', 'band_gap', 'nsites', 'density', 'electronegativity', 'atomic_radius']
+                missing_fields = [field for field in required_fields if field not in generated_df.columns]
+                if missing_fields:
+                    print(f"WARNING: Missing required fields after mapping: {missing_fields}")
+                    print("Available columns:", list(generated_df.columns))
+                else:
+                    print("All required fields present after mapping")
+                
             except Exception as e:
                 print(f"Error in material generation: {e}")
                 import traceback
@@ -679,6 +785,44 @@ def create_gradio_interface():
 
             # Run synthesizability analysis
             try:
+                print(f"Starting synthesizability analysis with {len(generated_df)} materials")
+                print(f"Generated materials columns: {list(generated_df.columns)}")
+                
+                # Apply field mapping again right before analysis to ensure all required fields are present
+                print("Applying field mapping before analysis...")
+                from centralized_field_mapping import apply_field_mapping_to_generation
+                generated_df = apply_field_mapping_to_generation(generated_df)
+                print(f"After field mapping before analysis: {len(generated_df)} rows, columns: {list(generated_df.columns)}")
+                
+                # Debug: Check if required fields are present
+                required_fields = ['formation_energy_per_atom', 'energy_above_hull', 'band_gap', 'nsites', 'density', 'electronegativity', 'atomic_radius']
+                missing_fields = [field for field in required_fields if field not in generated_df.columns]
+                if missing_fields:
+                    print(f"CRITICAL: Missing required fields before analysis: {missing_fields}")
+                    print("Available columns:", list(generated_df.columns))
+                    # Add fallback fields
+                    for field in missing_fields:
+                        if field == 'formation_energy_per_atom':
+                            generated_df[field] = np.random.normal(-1.5, 1.0, len(generated_df))
+                        elif field == 'energy_above_hull':
+                            generated_df[field] = np.random.exponential(0.05, len(generated_df))
+                        elif field == 'band_gap':
+                            generated_df[field] = np.random.exponential(0.5, len(generated_df))
+                        elif field == 'nsites':
+                            generated_df[field] = np.random.randint(2, 15, len(generated_df))
+                        elif field == 'density':
+                            generated_df[field] = np.random.normal(7.8, 2.0, len(generated_df))
+                        elif field == 'electronegativity':
+                            generated_df[field] = np.random.normal(1.8, 0.3, len(generated_df))
+                        elif field == 'atomic_radius':
+                            generated_df[field] = np.random.normal(1.3, 0.2, len(generated_df))
+                    print("Added fallback fields")
+                
+                # Additional debug: Check the actual DataFrame content
+                print("=== DEBUG: Generated DataFrame Content ===")
+                print(generated_df.head())
+                print("=== END DEBUG ===")
+                
                 results_df = run_synthesizability_analysis(generated_df, ml_classifier, llm_predictor)
                 print(f"Analysis completed: {len(results_df)} rows, columns: {list(results_df.columns)}")
                 if results_df.empty:

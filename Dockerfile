@@ -19,9 +19,24 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy application code
-COPY gradio_app.py .
-COPY synthesizability_predictor.py .
+COPY api_authentication_handler.py .
+COPY centralized_field_mapping.py .
+COPY data_generator.py .
+COPY debug_field_mapping.py .
 COPY export_for_lab.py .
+COPY feature_schema.yml .
+COPY field_mapping_utils.py .
+COPY gradio_app.py .
+COPY hazards.yml .
+COPY materials_discovery_model.py .
+COPY materials_discovery_api.py .
+COPY synthesizability_predictor.py .
+COPY test_docker_solution.py .
+COPY test_field_mapping_fixes.py .
+COPY test_ml_prediction.py .
+COPY test_mp_end_to_end.py .
+COPY test_mp_integration.py .
+COPY test_synthesizability.py .
 
 # Expose port 8080 for Google Cloud Run
 EXPOSE 8080

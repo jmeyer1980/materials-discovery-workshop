@@ -4,10 +4,10 @@ services:
   materials-discovery:
     build: .
     ports:
-      - "8501:8501"
+      - "8080:8080"
     volumes:
       - .:/app
       - /app/__pycache__
     environment:
       - PYTHONPATH=/app
-    command: streamlit run app.py --server.port=8501 --server.address=0.0.0.0 --server.headless=true
+    command: python gradio_app.py
