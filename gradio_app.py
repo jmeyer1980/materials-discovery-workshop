@@ -747,27 +747,33 @@ def create_gradio_interface():
                     df_copy[field] = np.clip(df_copy[field], 0.8, 2.2)
         return df_copy
 
-    def initialize_models(api_key, latent_dim, epochs):
+    def initialize_models(api_key, latent_dim, epochs, progress=gr.Progress()):
         """STEP 1: Initialize ML classifier and VAE with API key - SEPARATE from generation."""
         global ml_classifier, ml_metrics, vae_model, vae_scaler, is_initialized
         
         try:
+            progress(0, desc="🔧 Starting initialization...")
             print("=" * 60)
             print("STEP 1: INITIALIZING MODELS AND AUTHENTICATING WITH MP API")
             print("=" * 60)
             
             # Initialize ML classifier and train with provided API key
+            progress(0.1, desc="📊 Training ML Classifier...")
             print("\n1. Training ML Classifier...")
             ml_classifier = SynthesizabilityClassifier()
             ml_metrics = ml_classifier.train(api_key=api_key)
             print(f"✅ ML Classifier trained: Accuracy={ml_metrics['accuracy']:.3f}, F1={ml_metrics['f1_score']:.3f}")
+            progress(0.4, desc="✅ ML Classifier trained successfully!")
 
             # Create VAE training dataset (real MP data if available, synthetic otherwise)
+            progress(0.45, desc="📥 Fetching Materials Project data...")
             print("\n2. Fetching Materials Project data for VAE training...")
             try:
                 from synthesizability_predictor import create_vae_training_dataset_from_mp
+                progress(0.5, desc="📥 Downloading Materials Project data...")
                 dataset = create_vae_training_dataset_from_mp(api_key=api_key, n_materials=1000)
                 print("✅ Using real Materials Project data for VAE training")
+                progress(0.6, desc="✅ Materials Project data loaded!")
             except ImportError:
                 print("⚠️ Using synthetic dataset for VAE training")
                 # Use the updated synthetic dataset function that includes all required fields
@@ -795,6 +801,7 @@ def create_gradio_interface():
                             elif field == 'nsites':
                                 dataset[field] = np.random.randint(2, 15, len(dataset))
 
+            progress(0.62, desc="🔧 Preparing training data...")
             print(f"\n3. Preparing VAE training data ({len(dataset)} materials)...")
             print(f"Dataset columns: {list(dataset.columns)}")
             print(f"First few rows:\n{dataset.head(3)}")
@@ -813,20 +820,58 @@ def create_gradio_interface():
             vae_scaler = StandardScaler()
             features_scaled = vae_scaler.fit_transform(features)
             print("✅ Feature scaling completed")
+            progress(0.65, desc="✅ Data prepared for VAE training!")
 
-            # Train VAE
+            # Train VAE with progress updates
+            progress(0.67, desc=f"🧠 Training VAE model ({epochs} epochs)...")
             print(f"\n4. Training VAE model (latent_dim={latent_dim}, epochs={epochs})...")
-            vae_model = train_vae_model(features_scaled, latent_dim=latent_dim, epochs=epochs)
+            
+            # Train VAE with epoch-level progress tracking
+            device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+            input_dim = features_scaled.shape[1]
+            vae_model = OptimizedVAE(input_dim=input_dim, latent_dim=latent_dim).to(device)
+            
+            features_tensor = torch.FloatTensor(features_scaled)
+            dataset_tensor = torch.utils.data.TensorDataset(features_tensor, features_tensor)
+            dataloader = DataLoader(dataset_tensor, batch_size=32, shuffle=True)
+            
+            optimizer = optim.Adam(vae_model.parameters(), lr=0.005)
+            scheduler = optim.lr_scheduler.ExponentialLR(optimizer, gamma=0.995)
+            
+            vae_model.train()
+            for epoch in range(epochs):
+                # Update progress for each epoch
+                epoch_progress = 0.67 + 0.30 * (epoch / epochs)
+                progress(epoch_progress, desc=f"🧠 Training VAE (Epoch {epoch+1}/{epochs})...")
+                
+                for batch_x, _ in dataloader:
+                    batch_x = batch_x.to(device)
+                    
+                    reconstructed, mu, log_var = vae_model(batch_x)
+                    reconstruction_loss = nn.functional.mse_loss(reconstructed, batch_x, reduction='sum')
+                    kl_loss = -0.5 * torch.sum(1 + log_var - mu.pow(2) - log_var.exp())
+                    
+                    kl_weight = min(1.0, epoch / 10.0)
+                    loss = reconstruction_loss + kl_weight * kl_loss
+                    
+                    optimizer.zero_grad()
+                    loss.backward()
+                    optimizer.step()
+                
+                scheduler.step()
+            
             print("✅ VAE training completed")
+            progress(0.97, desc="✅ VAE training completed!")
             
             is_initialized = True
             
+            progress(1.0, desc="🎉 Initialization Complete!")
             print("\n" + "=" * 60)
             print("✅ INITIALIZATION COMPLETE - READY TO GENERATE MATERIALS")
             print("=" * 60)
             
             init_summary = f"""
-            ## ✅ Initialization Successful!
+            ## 🎉 Initialization Successful!
             
             **Models Ready:**
             - ✅ ML Classifier trained (Accuracy: {ml_metrics['accuracy']:.1%}, F1: {ml_metrics['f1_score']:.3f})
