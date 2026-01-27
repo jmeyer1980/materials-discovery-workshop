@@ -4,7 +4,7 @@ This guide provides multiple deployment options for the Materials Discovery ML s
 
 ## 📋 Prerequisites
 
-- Python 3.8+ (for local deployment)
+- Python 3.10+ (for local deployment)
 - Docker & Docker Compose (for containerized deployment)
 - Git (to clone/download the project)
 - 4GB+ RAM recommended for ML training
@@ -27,6 +27,7 @@ jupyter notebook materials_discovery_workshop.ipynb
 ```
 
 **Features:**
+
 - Step-by-step ML workflow explanation
 - Interactive parameter adjustment
 - Real-time visualization generation
@@ -37,6 +38,7 @@ jupyter notebook materials_discovery_workshop.ipynb
 Simple web interface for generating new materials on-demand.
 
 **Local Deployment:**
+
 ```bash
 # Install dependencies
 pip install -r requirements.txt
@@ -45,9 +47,10 @@ pip install -r requirements.txt
 streamlit run app.py
 ```
 
-Open http://localhost:8501 in your browser.
+Open <http://localhost:8501> in your browser.
 
 **Features:**
+
 - One-click material generation
 - Adjustable sample count
 - Real-time property visualization
@@ -66,9 +69,10 @@ docker build -t materials-discovery .
 docker run -p 8501:8501 materials-discovery
 ```
 
-Open http://localhost:8501 in your browser.
+Open <http://localhost:8501> in your browser.
 
 **Benefits:**
+
 - No dependency conflicts
 - Consistent environment across machines
 - Easy scaling and distribution
@@ -76,7 +80,7 @@ Open http://localhost:8501 in your browser.
 
 ## 📁 Project Structure
 
-```
+```none
 materials-discovery-workshop/
 ├── materials_discovery_workshop.ipynb  # Interactive workshop notebook
 ├── app.py                              # Streamlit web application
@@ -96,6 +100,7 @@ materials-discovery-workshop/
 ### Python Environment Setup
 
 1. **Create Virtual Environment (Recommended):**
+
    ```bash
    python -m venv materials_env
    source materials_env/bin/activate  # Linux/Mac
@@ -104,11 +109,13 @@ materials-discovery-workshop/
    ```
 
 2. **Install Dependencies:**
+
    ```bash
    pip install -r requirements.txt
    ```
 
 3. **Verify Installation:**
+
    ```bash
    python -c "import torch, pandas, streamlit, sklearn; print('All dependencies installed!')"
    ```
@@ -158,21 +165,25 @@ This will create a fresh dataset with customizable alloy compositions.
 ### Common Issues
 
 **"Module not found" errors:**
+
 - Ensure you're in the correct virtual environment
 - Run `pip install -r requirements.txt` again
 - For Docker: rebuild with `docker-compose build --no-cache`
 
 **Streamlit app not loading:**
+
 - Check that port 8501 is available
 - Try different port: `streamlit run app.py --server.port=8502`
 - For Docker: ensure port mapping is correct
 
 **ML training taking too long:**
+
 - Reduce epochs in the code (default is optimized for speed)
 - Use GPU if available (automatically detected)
 - For workshops: pre-train models and load from checkpoint
 
 **Memory errors:**
+
 - Reduce batch size in training loops
 - Generate fewer samples at once
 - Use lighter model configurations
@@ -180,11 +191,13 @@ This will create a fresh dataset with customizable alloy compositions.
 ### Performance Optimization
 
 **For Low-Resource Systems:**
+
 - Reduce latent dimension from 5 to 3 in VAE
 - Decrease training epochs to 20-30
 - Generate smaller batches of materials (10-20 at a time)
 
 **For High-Performance Systems:**
+
 - Increase latent dimension to 8-10
 - Train for more epochs (100+)
 - Use larger datasets and more complex models
