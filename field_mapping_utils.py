@@ -347,38 +347,53 @@ class FieldMapper:
         return df_result
 
 
-def validate_dataframe_consistency(df: pd.DataFrame, context: str = "unknown") -> bool:
+def validate_dataframe_consistency(
+    df: pd.DataFrame,
+    context: str = "unknown",
+    required_fields: Optional[List[str]] = None
+) -> bool:
     """
     Validate that a DataFrame has consistent field naming and data types.
 
     Args:
         df: DataFrame to validate
         context: Context string for logging (e.g., "gradio_app", "synthesizability_predictor")
+        required_fields: If provided, only check these fields instead of all canonical fields.
+                         Use this when the DataFrame is intentionally a subset of the full schema
+                         (e.g., the ML classifier only needs 7 numeric features, not element names).
 
     Returns:
         True if validation passes, False otherwise
     """
     print(f"\n=== Validating DataFrame consistency for {context} ===")
 
-    # Get field status report
+    # Get full field status report for column count info
     report = FieldMapper.get_field_status_report(df)
 
     print(f"Total columns: {report['total_columns']}")
-    print(f"Canonical fields found: {len(report['canonical_fields_found'])}")
-    print(f"Missing canonical fields: {len(report['missing_canonical_fields'])}")
 
-    if report['missing_canonical_fields']:
-        print(f"Missing fields: {report['missing_canonical_fields']}")
+    if required_fields is not None:
+        # Validate only the explicitly required fields for this pipeline stage
+        missing_required = [f for f in required_fields if f not in df.columns]
+        present_required = [f for f in required_fields if f in df.columns]
+        print(f"Required fields found: {len(present_required)}/{len(required_fields)}")
+        if missing_required:
+            print(f"Missing required fields: {missing_required}")
+        has_required_fields = len(missing_required) == 0
+    else:
+        # Fall back to full canonical field check (original behaviour)
+        print(f"Canonical fields found: {len(report['canonical_fields_found'])}")
+        print(f"Missing canonical fields: {len(report['missing_canonical_fields'])}")
+        if report['missing_canonical_fields']:
+            print(f"Missing fields: {report['missing_canonical_fields']}")
+        has_required_fields = len(report['missing_canonical_fields']) == 0
 
     # Check validation results
     invalid_fields = [field for field, is_valid in report['validation_results'].items() if not is_valid]
     if invalid_fields:
         print(f"Invalid field types: {invalid_fields}")
 
-    # Overall validation result
-    has_required_fields = len(report['missing_canonical_fields']) == 0
     all_types_valid = len(invalid_fields) == 0
-
     validation_passed = has_required_fields and all_types_valid
 
     print(f"Validation result: {'PASS' if validation_passed else 'FAIL'}")
@@ -411,8 +426,8 @@ def standardize_dataframe(df: pd.DataFrame, required_fields: List[str], context:
     # Step 2: Ensure all required fields are present
     df_standardized = FieldMapper.ensure_field_completeness(df_standardized, required_fields)
 
-    # Step 3: Validate the result
-    is_valid = validate_dataframe_consistency(df_standardized, context)
+    # Step 3: Validate the result against only the fields this pipeline stage requires
+    is_valid = validate_dataframe_consistency(df_standardized, context, required_fields=required_fields)
 
     if not is_valid:
         print("Warning: Standardization completed but validation failed")

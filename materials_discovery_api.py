@@ -429,11 +429,15 @@ def create_ml_features_from_mp_data(mp_data: pd.DataFrame) -> pd.DataFrame:
     features_df['composition_2'] = 0.5
     features_df['composition_3'] = 0.0
 
+    # Ensure nsites is present for downstream ML classifier compatibility
+    if 'nsites' not in features_df.columns:
+        features_df['nsites'] = 8
+
     # Map properties to ML features
     ml_features = features_df[[
         'composition_1', 'composition_2', 'composition_3',
         'density', 'electronegativity_avg', 'atomic_radius_avg',
-        'band_gap', 'energy_above_hull', 'formation_energy_per_atom'
+        'band_gap', 'energy_above_hull', 'formation_energy_per_atom', 'nsites'
     ]].copy()
 
     # Handle missing values, now done in validation
@@ -445,16 +449,21 @@ def create_ml_features_from_mp_data(mp_data: pd.DataFrame) -> pd.DataFrame:
         'atomic_radius_avg': 'atomic_radius'
     })
 
-    # Validate and clean data using the schema
-    schema_path = os.path.join(os.path.dirname(__file__), '..', 'feature_schema.yml')
-    if not os.path.exists(schema_path):
-        # Fallback for different project structures
-        schema_path = 'feature_schema.yml'
-        
-    ml_features = validate_data_with_schema(ml_features, schema_path)
-
     # Validate field consistency and standardize column names
     try:
+        # Clean numeric fields before standardization
+        numeric_cols = [
+            'composition_1', 'composition_2', 'composition_3',
+            'density', 'electronegativity', 'atomic_radius',
+            'band_gap', 'energy_above_hull', 'formation_energy_per_atom', 'nsites'
+        ]
+
+        for col in numeric_cols:
+            if col in ml_features.columns:
+                ml_features[col] = pd.to_numeric(ml_features[col], errors='coerce')
+
+        ml_features = ml_features.fillna(ml_features.mean(numeric_only=True))
+
         # Check if required fields are present
         missing_fields = [field for field in REQUIRED_FIELDS_ML_CLASSIFIER if field not in ml_features.columns]
         if missing_fields:
@@ -465,7 +474,11 @@ def create_ml_features_from_mp_data(mp_data: pd.DataFrame) -> pd.DataFrame:
                 print(f"Added missing field '{field}' with default value 0.0")
 
         # Standardize the dataframe to ensure consistent field names
-        ml_features = standardize_dataframe(ml_features)
+        ml_features = standardize_dataframe(
+            ml_features,
+            required_fields=REQUIRED_FIELDS_ML_CLASSIFIER,
+            context="materials_discovery_api.create_ml_features_from_mp_data"
+        )
         
         print(f"Standardized ML features for {len(ml_features)} materials")
         
