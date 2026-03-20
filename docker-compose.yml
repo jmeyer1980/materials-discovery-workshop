@@ -13,3 +13,40 @@ services:
           memory: 2G
         reservations:
           memory: 1G
+
+  # Local Jupyter runtime — connect Google Colab via:
+  #   Runtime → Connect to a local runtime → http://localhost:8888/
+  # Start with: docker compose up notebook
+  notebook:
+    build:
+      context: .
+      dockerfile: Dockerfile.notebook
+    ports:
+      - "8888:8888"
+    volumes:
+      - .:/app
+    working_dir: /app
+    environment:
+      - PYTHONPATH=/app
+      - IN_DOCKER=1
+      - MP_API_KEY=${MP_API_KEY:-}
+      - ACCEPT_TERMS=${ACCEPT_TERMS:-}
+      - ACCEPT_EULA=${ACCEPT_EULA:-}
+      - ACCEPT_RISKS=${ACCEPT_RISKS:-}
+    command:
+      - jupyter
+      - server
+      - --ServerApp.allow_origin=https://colab.research.google.com
+      - --ServerApp.allow_remote_access=True
+      - --ServerApp.disable_check_xsrf=True
+      - --ServerApp.ip=0.0.0.0
+      - --ServerApp.port=8888
+      - --IdentityProvider.token=
+      - --no-browser
+      - --allow-root
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+        reservations:
+          memory: 2G

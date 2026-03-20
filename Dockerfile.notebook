@@ -1,0 +1,37 @@
+# Notebook image — Jupyter Server + science/ML stack only, no Gradio web UI.
+# Rebuilds independently of the app image so changes here don't force a full app rebuild.
+FROM python:3.12-slim
+
+WORKDIR /app
+
+# System libraries needed by scipy, scikit-image, pymatgen, etc.
+RUN apt-get update && apt-get install -y \
+    build-essential \
+    libxml2-dev \
+    libxslt-dev \
+    pkg-config \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY requirements-notebook.txt .
+RUN pip install --no-cache-dir -r requirements-notebook.txt
+RUN python -m ipykernel install --sys-prefix --name python3 --display-name "Python 3"
+
+# Jupyter Server config: allow Colab local-runtime connections, no token, no XSRF.
+RUN mkdir -p /usr/local/etc/jupyter && \
+    echo '{"ServerApp": {"allow_origin": "https://colab.research.google.com", "disable_check_xsrf": true, "ip": "0.0.0.0", "port": 8888, "token": "", "allow_remote_access": true}}' \
+    > /usr/local/etc/jupyter/jupyter_server_config.json
+
+# Copy project source so notebook cells can import local modules.
+COPY api_authentication_handler.py .
+COPY centralized_field_mapping.py .
+COPY data_generator.py .
+COPY debug_field_mapping.py .
+COPY export_for_lab.py .
+COPY feature_schema.yml .
+COPY field_mapping_utils.py .
+COPY hazards.yml .
+COPY materials_discovery_model.py .
+COPY materials_discovery_api.py .
+COPY synthesizability_predictor.py .
+
+ENV PYTHONUNBUFFERED=1
