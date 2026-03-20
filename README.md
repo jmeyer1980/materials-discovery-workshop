@@ -5,6 +5,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
 [![Materials Project](https://img.shields.io/badge/data-Materials_Project-orange.svg)](https://materialsproject.org/)
+[![Open in Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/jmeyer1980/materials-discovery-workshop/blob/main/materials_discovery_workshop_colab_real_data.ipynb)
 
 ## Overview
 
