@@ -14,10 +14,12 @@ import pandas as pd
 import numpy as np
 from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier
 from sklearn.model_selection import train_test_split, cross_val_score
-from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, brier_score_loss
+from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, brier_score_loss, precision_recall_curve
 from sklearn.preprocessing import StandardScaler
 from sklearn.calibration import calibration_curve, CalibratedClassifierCV
 from sklearn.isotonic import IsotonicRegression
+from sklearn.pipeline import Pipeline
+from sklearn.utils import resample
 
 from sklearn.neighbors import NearestNeighbors
 from typing import Dict, List, Tuple
@@ -936,6 +938,8 @@ class SynthesizabilityClassifier:
         self.knn_detector = None  # KNN model for in-distribution detection
         self.training_labels = None  # Store training labels for calibration
         self.calibration_metrics = None  # Store calibration error metrics
+        self.training_feature_medians = None  # Deterministic defaults for missing fields
+        self.decision_threshold = 0.5  # Tuned threshold on calibration split
 
     def prepare_training_data(self, api_key: str = None) -> Tuple[pd.DataFrame, pd.Series]:
         """Prepare training data from real Materials Project data or fallback to synthetic."""
@@ -948,72 +952,156 @@ class SynthesizabilityClassifier:
         return X, y
 
     def train(self, test_size: float = 0.2, api_key: str = None):
-        """Train the synthesizability classifier with calibration and in-distribution detection."""
+        """Train the synthesizability classifier with calibrated probabilities and in-distribution detection."""
         X, y = self.prepare_training_data(api_key=api_key)
 
-        # Split data
+        class_counts = y.value_counts()
+        if len(class_counts) < 2:
+            raise ValueError("Training data has only one class; cannot train classifier")
+
+        # Split into train/test and keep a calibration holdout from training set
         X_train, X_test, y_train, y_test = train_test_split(
             X, y, test_size=test_size, random_state=42, stratify=y
         )
+        X_model_train, X_cal, y_model_train, y_cal = train_test_split(
+            X_train, y_train, test_size=0.2, random_state=42, stratify=y_train
+        )
+
+        # Rebalance model-training split only (preserve test/calibration distributions)
+        train_df = X_model_train.copy()
+        train_df['synthesizable'] = y_model_train.values
+        class_sizes = train_df['synthesizable'].value_counts()
+        if len(class_sizes) == 2 and class_sizes.min() > 0:
+            imbalance_ratio = class_sizes.max() / class_sizes.min()
+            if imbalance_ratio > 1.5:
+                majority_class = class_sizes.idxmax()
+                minority_class = class_sizes.idxmin()
+                majority_df = train_df[train_df['synthesizable'] == majority_class]
+                minority_df = train_df[train_df['synthesizable'] == minority_class]
+                minority_upsampled = resample(
+                    minority_df,
+                    replace=True,
+                    n_samples=len(majority_df),
+                    random_state=42
+                )
+                balanced_df = pd.concat([majority_df, minority_upsampled], ignore_index=True)
+                balanced_df = balanced_df.sample(frac=1.0, random_state=42).reset_index(drop=True)
+                X_model_train = balanced_df[self.feature_columns]
+                y_model_train = balanced_df['synthesizable']
 
         # Scale features
-        X_train_scaled = self.scaler.fit_transform(X_train)
+        X_model_train_scaled = self.scaler.fit_transform(X_model_train)
+        X_cal_scaled = self.scaler.transform(X_cal)
         X_test_scaled = self.scaler.transform(X_test)
 
         # Initialize model
         if self.model_type == 'random_forest':
             self.model = RandomForestClassifier(
-                n_estimators=200,
-                max_depth=10,
-                min_samples_split=5,
+                n_estimators=400,
+                max_depth=None,
+                min_samples_split=4,
                 min_samples_leaf=2,
+                class_weight='balanced_subsample',
+                max_features='sqrt',
                 random_state=42,
                 n_jobs=-1
             )
         elif self.model_type == 'gradient_boosting':
             self.model = GradientBoostingClassifier(
-                n_estimators=200,
-                max_depth=6,
-                learning_rate=0.1,
+                n_estimators=300,
+                max_depth=5,
+                learning_rate=0.05,
                 random_state=42
             )
         else:
             raise ValueError(f"Unsupported model type: {self.model_type}")
 
-        # Train model
-        self.model.fit(X_train_scaled, y_train)
+        # Train base model
+        self.model.fit(X_model_train_scaled, y_model_train)
 
-        # Store training data for in-distribution detection
-        self.training_features_scaled = X_train_scaled
+        # Persist artifacts for inference
+        self.training_features_scaled = X_model_train_scaled
+        self.training_labels = y_model_train.values
+        self.training_feature_medians = X_model_train.median(numeric_only=True).to_dict()
 
         # Set up KNN detector for in-distribution detection
         self.knn_detector = NearestNeighbors(n_neighbors=5, algorithm='auto')
-        self.knn_detector.fit(X_train_scaled)
+        self.knn_detector.fit(X_model_train_scaled)
 
-        # Compute calibration curve
-        y_test_proba = self.model.predict_proba(X_test_scaled)[:, 1]
-        prob_true, prob_pred = calibration_curve(y_test, y_test_proba, n_bins=10, strategy='uniform')
+        # Fit calibration model on held-out calibration split
+        cal_raw_prob = self.model.predict_proba(X_cal_scaled)[:, 1]
+        if len(np.unique(y_cal)) >= 2:
+            self.calibration_model = IsotonicRegression(out_of_bounds='clip')
+            self.calibration_model.fit(cal_raw_prob, y_cal.values)
+            self.calibration_method = 'isotonic'
+            cal_prob = np.clip(self.calibration_model.predict(cal_raw_prob), 0.0, 1.0)
+        else:
+            self.calibration_model = None
+            cal_prob = cal_raw_prob
+
+        # Choose a decision threshold from calibration split (maximize F1)
+        precision, recall, thresholds = precision_recall_curve(y_cal.values, cal_prob)
+        if len(thresholds) > 0:
+            f1_values = 2 * precision[:-1] * recall[:-1] / np.clip(precision[:-1] + recall[:-1], 1e-8, None)
+            best_idx = int(np.argmax(f1_values))
+            self.decision_threshold = float(np.clip(thresholds[best_idx], 0.2, 0.8))
+        else:
+            self.decision_threshold = 0.5
+
+        # Evaluate on held-out test split
+        y_test_raw_prob = self.model.predict_proba(X_test_scaled)[:, 1]
+        if self.calibration_model is not None:
+            y_test_prob = np.clip(self.calibration_model.predict(y_test_raw_prob), 0.0, 1.0)
+        else:
+            y_test_prob = y_test_raw_prob
+
+        prob_true, prob_pred = calibration_curve(y_test, y_test_prob, n_bins=10, strategy='uniform')
         self.calibration_curve = (prob_true, prob_pred)
 
-        # Evaluate
-        y_pred = self.model.predict(X_test_scaled)
-
+        y_pred = (y_test_prob >= self.decision_threshold).astype(int)
         metrics = {
             'accuracy': accuracy_score(y_test, y_pred),
-            'precision': precision_score(y_test, y_pred),
-            'recall': recall_score(y_test, y_pred),
-            'f1_score': f1_score(y_test, y_pred)
+            'precision': precision_score(y_test, y_pred, zero_division=0),
+            'recall': recall_score(y_test, y_pred, zero_division=0),
+            'f1_score': f1_score(y_test, y_pred, zero_division=0),
+            'decision_threshold': self.decision_threshold,
+            'class_balance_train': dict(class_counts)
         }
 
-        # Cross-validation
-        cv_scores = cross_val_score(self.model, self.scaler.transform(X), y, cv=5)
-        metrics['cv_mean'] = cv_scores.mean()
-        metrics['cv_std'] = cv_scores.std()
+        # Cross-validation with leakage-safe scaling
+        cv_folds = min(5, int(class_counts.min()))
+        if cv_folds >= 2:
+            if self.model_type == 'random_forest':
+                cv_model = RandomForestClassifier(
+                    n_estimators=400,
+                    max_depth=None,
+                    min_samples_split=4,
+                    min_samples_leaf=2,
+                    class_weight='balanced_subsample',
+                    max_features='sqrt',
+                    random_state=42,
+                    n_jobs=-1
+                )
+            else:
+                cv_model = GradientBoostingClassifier(
+                    n_estimators=300,
+                    max_depth=5,
+                    learning_rate=0.05,
+                    random_state=42
+                )
+            cv_pipeline = Pipeline([
+                ('scaler', StandardScaler()),
+                ('model', cv_model)
+            ])
+            cv_scores = cross_val_score(cv_pipeline, X, y, cv=cv_folds)
+            metrics['cv_mean'] = float(cv_scores.mean())
+            metrics['cv_std'] = float(cv_scores.std())
+        else:
+            metrics['cv_mean'] = None
+            metrics['cv_std'] = None
 
         self.is_trained = True
-
-        # Compute calibration metrics
-        self.calibration_metrics = self.compute_calibration_metrics(y_test, y_test_proba)
+        self.calibration_metrics = self.compute_calibration_metrics(y_test.values, y_test_prob)
 
         return metrics
 
@@ -1226,32 +1314,24 @@ class SynthesizabilityClassifier:
         if DOCKER_DEBUG:
             print(f"[DOCKER DEBUG] Checking for missing fields...")
             
+        default_feature_values = self.training_feature_medians or {
+            'formation_energy_per_atom': -1.5,
+            'energy_above_hull': 0.08,
+            'band_gap': 0.5,
+            'nsites': 6,
+            'density': 7.0,
+            'electronegativity': 1.8,
+            'atomic_radius': 1.4
+        }
+
         for field in required_fields:
             if field not in X_pred.columns:
-                print(f"EMERGENCY: Creating missing field: {field}")
-                if field == 'formation_energy_per_atom':
-                    X_pred[field] = np.random.normal(-1.5, 1.0, len(X_pred))
-                    X_pred[field] = np.clip(X_pred[field], -6.0, 2.0)
-                elif field == 'energy_above_hull':
-                    X_pred[field] = np.random.exponential(0.05, len(X_pred))
-                    X_pred[field] = np.clip(X_pred[field], 0, 0.5)
-                elif field == 'band_gap':
-                    X_pred[field] = np.random.exponential(0.5, len(X_pred))
-                    X_pred[field] = np.clip(X_pred[field], 0, 8.0)
-                elif field == 'nsites':
-                    X_pred[field] = np.random.randint(2, 15, len(X_pred))
-                elif field == 'density':
-                    X_pred[field] = np.random.normal(7.8, 2.0, len(X_pred))
-                    X_pred[field] = np.clip(X_pred[field], 2.0, 25.0)
-                elif field == 'electronegativity':
-                    X_pred[field] = np.random.normal(1.8, 0.3, len(X_pred))
-                    X_pred[field] = np.clip(X_pred[field], 0.7, 2.5)
-                elif field == 'atomic_radius':
-                    X_pred[field] = np.random.normal(1.3, 0.2, len(X_pred))
-                    X_pred[field] = np.clip(X_pred[field], 0.8, 2.2)
-                
+                default_value = float(default_feature_values.get(field, 0.0))
+                print(f"EMERGENCY: Creating missing field '{field}' with deterministic default {default_value:.4f}")
+                X_pred[field] = default_value
+
                 if DOCKER_DEBUG:
-                    print(f"[DOCKER DEBUG] Created field '{field}' with {len(X_pred)} values")
+                    print(f"[DOCKER DEBUG] Created field '{field}' with deterministic default")
 
         # MANDATORY: Verify all required fields exist before column selection
         missing_fields = [field for field in self.feature_columns if field not in X_pred.columns]
@@ -1276,8 +1356,10 @@ class SynthesizabilityClassifier:
         if DOCKER_DEBUG:
             print(f"[DOCKER DEBUG] Feature selection complete. Shape: {X_pred.shape}")
 
-        # Handle missing values
-        X_pred = X_pred.fillna(X_pred.mean())
+        # Handle missing values deterministically using training medians first
+        median_series = pd.Series(default_feature_values)
+        X_pred = X_pred.fillna(median_series)
+        X_pred = X_pred.fillna(X_pred.mean(numeric_only=True))
 
         # Scale features
         X_pred_scaled = self.scaler.transform(X_pred)
@@ -1289,21 +1371,20 @@ class SynthesizabilityClassifier:
         # Apply calibration if available
         if self.calibration_model is not None:
             if self.calibration_method == 'platt':
-                # Use CalibratedClassifierCV for Platt scaling
                 calibrated_predictions = self.calibration_model.predict(X_pred_scaled)
                 calibrated_probabilities = self.calibration_model.predict_proba(X_pred_scaled)[:, 1]
                 predictions = calibrated_predictions
                 probabilities = calibrated_probabilities
                 print("Applied Platt scaling calibration to predictions")
             elif self.calibration_method == 'isotonic':
-                # Apply isotonic regression to raw probabilities
                 calibrated_probabilities = self.calibration_model.predict(probabilities)
-                # Clip to valid probability range
                 calibrated_probabilities = np.clip(calibrated_probabilities, 0.0, 1.0)
                 probabilities = calibrated_probabilities
-                # Update predictions based on calibrated probabilities
-                predictions = (probabilities >= 0.5).astype(int)
+                predictions = (probabilities >= self.decision_threshold).astype(int)
                 print("Applied isotonic regression calibration to predictions")
+
+        # Always apply tuned decision threshold for consistency
+        predictions = (probabilities >= self.decision_threshold).astype(int)
 
         # Add results to dataframe
         results_df = materials_df.copy()
@@ -1466,7 +1547,7 @@ class LLMSynthesizabilityPredictor:
         return {
             'prediction': prediction,
             'probability': probability,
-            'confidence': min(probability, 1-probability) * 2,  # Distance from 0.5
+            'confidence': abs(probability - 0.5) * 2,  # Distance from 0.5
             'score': score,
             'max_score': max_score,
             'reasons': reasons

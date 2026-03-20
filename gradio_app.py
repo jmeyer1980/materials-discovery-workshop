@@ -488,18 +488,29 @@ def run_synthesizability_analysis(materials_df: pd.DataFrame, ml_classifier: Syn
     results_df['llm_probability'] = [p['probability'] for p in llm_predictions]
     results_df['llm_confidence'] = [p['confidence'] for p in llm_predictions]
 
-    # Ensemble prediction for experimental synthesizability using configurable weights
+    # Ensemble prediction for experimental synthesizability using distribution-aware weighting
     try:
         ensemble_weights = ml_classifier.ensemble_weights
     except:
         ensemble_weights = {'ml': 0.7, 'llm': 0.3}
-    
+
+    if 'in_distribution' in results_df.columns:
+        in_dist_adjustment = np.where(results_df['in_distribution'] == 'in-dist', 0.15, -0.10)
+        ml_weight_row = np.clip(ensemble_weights['ml'] + in_dist_adjustment, 0.55, 0.9)
+    else:
+        ml_weight_row = np.full(len(results_df), ensemble_weights['ml'])
+
+    llm_weight_row = 1.0 - ml_weight_row
     results_df['ensemble_probability'] = (
-        ensemble_weights['ml'] * results_df['synthesizability_probability'] +
-        ensemble_weights['llm'] * results_df['llm_probability']
+        ml_weight_row * results_df['synthesizability_probability'] +
+        llm_weight_row * results_df['llm_probability']
     )
     results_df['ensemble_prediction'] = (results_df['ensemble_probability'] >= 0.5).astype(int)
-    results_df['ensemble_confidence'] = np.abs(results_df['ensemble_probability'] - 0.5) * 2
+
+    # Confidence reflects both distance from decision boundary and model agreement
+    disagreement = np.abs(results_df['synthesizability_probability'] - results_df['llm_probability'])
+    raw_confidence = np.abs(results_df['ensemble_probability'] - 0.5) * 2
+    results_df['ensemble_confidence'] = np.clip(raw_confidence * (1 - 0.35 * disagreement), 0.0, 1.0)
 
     # Add thermodynamic stability results (separate from synthesizability)
     if stability_results:
