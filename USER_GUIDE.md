@@ -1,6 +1,7 @@
 # User Guide: Materials Discovery Workshop
 
 ## Table of Contents
+
 1. [Quick Start](#quick-start)
 2. [System Requirements](#system-requirements)
 3. [Installation](#installation)
@@ -12,7 +13,10 @@
 
 ## Quick Start
 
+**No-Endorsement Notice:** This workshop is an independent tool and is not sponsored or endorsed by Materials Project or the NOME lab.
+
 ### Option 1: Google Colab (Recommended)
+
 🚀 **No installation required!**
 
 1. Open [Materials Discovery Workshop Colab](https://colab.research.google.com/github/jmeyer1980/materials-discovery-workshop/blob/main/materials_discovery_workshop_colab_real_data.ipynb)
@@ -20,6 +24,7 @@
 3. Start exploring materials!
 
 ### Option 2: Local Installation
+
 ```bash
 # 1. Clone and setup
 git clone https://github.com/jmeyer1980/materials-discovery-workshop.git
@@ -39,18 +44,21 @@ python gradio_app.py
 ## System Requirements
 
 ### Minimum Requirements
+
 - **Python**: 3.8+
 - **RAM**: 4GB
 - **Storage**: 500MB
 - **Internet**: Required for Materials Project API access
 
 ### Recommended Requirements
+
 - **Python**: 3.9+
 - **RAM**: 8GB
 - **Storage**: 1GB
 - **GPU**: Optional (for faster model training)
 
 ### Supported Platforms
+
 - **Linux**: Ubuntu 18.04+, CentOS 7+
 - **macOS**: 10.15+
 - **Windows**: 10+ (via WSL recommended)
@@ -58,12 +66,14 @@ python gradio_app.py
 ## Installation
 
 ### Step 1: Clone Repository
+
 ```bash
 git clone https://github.com/jmeyer1980/materials-discovery-workshop.git
 cd materials-discovery-workshop
 ```
 
 ### Step 2: Create Virtual Environment (Recommended)
+
 ```bash
 # Linux/macOS
 python -m venv venv
@@ -75,20 +85,24 @@ venv\Scripts\activate
 ```
 
 ### Step 3: Install Dependencies
+
 ```bash
 pip install -r requirements.txt
 ```
 
 ### Step 4: Get Materials Project API Key
+
 1. Visit [Materials Project](https://materialsproject.org/)
 2. Create a free account
 3. Go to API section and generate your API key
 4. Set environment variable:
+
    ```bash
    export MP_API_KEY="your_api_key_here"
    ```
 
 ### Step 5: Verify Installation
+
 ```bash
 python -c "from synthesizability_predictor import SynthesizabilityClassifier; print('Installation successful!')"
 ```
@@ -96,6 +110,7 @@ python -c "from synthesizability_predictor import SynthesizabilityClassifier; pr
 ## Basic Usage
 
 ### Starting the Application
+
 ```bash
 python gradio_app.py
 ```
@@ -105,16 +120,19 @@ The application will start a local web server. Open the URL shown in your browse
 ### Main Interface
 
 #### 1. Materials Input
+
 - **Upload CSV**: Upload your materials data
 - **Manual Entry**: Enter individual material properties
 - **Example Data**: Use provided sample materials
 
 #### 2. Prediction Settings
+
 - **SAFE MODE**: Enable/disable safety filtering
 - **Ensemble Weights**: Balance ML vs rule-based predictions
 - **Calibration**: Choose calibration method
 
 #### 3. Results View
+
 - **Predictions Table**: Synthesizability predictions for each material
 - **Summary Statistics**: Overall statistics and confidence metrics
 - **Export Options**: Download results as CSV or PDF
@@ -122,7 +140,8 @@ The application will start a local web server. Open the URL shown in your browse
 ### Sample Workflow
 
 1. **Upload Materials Data**
-   ```
+
+   ```none
    CSV Format Required:
    formation_energy_per_atom,band_gap,energy_above_hull,electronegativity,atomic_radius,nsites,density
    -2.5,1.2,0.02,1.8,1.4,8,7.2
@@ -144,6 +163,7 @@ The application will start a local web server. Open the URL shown in your browse
 ## Advanced Features
 
 ### Model Calibration
+
 The system uses probability calibration to ensure reliable confidence estimates:
 
 ```python
@@ -159,6 +179,7 @@ print(f"ECE: {calibration_info['expected_calibration_error']:.3f}")
 ```
 
 ### Ensemble Weighting
+
 Optimize the balance between ML and rule-based predictions:
 
 ```python
@@ -171,6 +192,7 @@ print(f"Optimized weights: {new_weights}")
 ```
 
 ### Safety Filtering
+
 Configure hazard screening for lab-ready exports:
 
 ```python
@@ -185,6 +207,7 @@ print(f"Blocked materials: {summary['unsafe_materials']}")
 ```
 
 ### Batch Processing
+
 Process large datasets efficiently:
 
 ```python
@@ -208,7 +231,7 @@ final_results = pd.concat(results, ignore_index=True)
 ### Prediction Columns
 
 | Column | Description | Interpretation |
-|--------|-------------|----------------|
+| -------- | ------------- | ---------------- |
 | `prediction` | Binary classification | 1 = synthesizable, 0 = not synthesizable |
 | `probability` | Calibrated probability | 0.0-1.0 (higher = more likely synthesizable) |
 | `confidence` | Decision certainty | 0.0-1.0 (higher = more confident prediction) |
@@ -232,10 +255,13 @@ final_results = pd.concat(results, ignore_index=True)
 ### Common Issues
 
 #### 1. API Key Issues
-```
+
+```log
 Error: MP API key validation failed
 ```
+
 **Solution:**
+
 ```bash
 # Check if key is set
 echo $MP_API_KEY
@@ -248,28 +274,37 @@ python -c "from materials_discovery_api import MaterialsProjectClient; client = 
 ```
 
 #### 2. Memory Issues
-```
+
+```log
 Error: Out of memory during training
 ```
+
 **Solution:**
+
 - Reduce dataset size: `classifier.train(n_materials=100)`
 - Use smaller model: `SynthesizabilityClassifier(model_type='gradient_boosting')`
 - Increase system RAM or use cloud instance
 
 #### 3. Calibration Errors
-```
+
+```log
 Warning: Calibration curve not available
 ```
+
 **Solution:**
+
 - Ensure model is trained before calibration
 - Check that training data includes both classes
 - Try different calibration method: `calibrate_model(method='platt')`
 
 #### 4. Import Errors
-```
+
+```log
 ModuleNotFoundError: No module named 'pymatgen'
 ```
+
 **Solution:**
+
 ```bash
 pip install pymatgen
 # Or for full installation:
@@ -279,14 +314,17 @@ conda install -c conda-forge pymatgen
 ### Performance Issues
 
 #### Slow Predictions
+
 - **Cause**: Large dataset or complex model
 - **Solution**: Process in batches, use simpler model
 
 #### Poor Accuracy
+
 - **Cause**: Materials outside training distribution
 - **Solution**: Check `in_distribution` column, consider retraining with broader data
 
 #### Calibration Drift
+
 - **Cause**: Model used on very different materials than training data
 - **Solution**: Monitor ECE, retrain periodically with new data
 
@@ -312,18 +350,21 @@ conda install -c conda-forge pymatgen
 ### Prediction Usage
 
 1. **Prioritize High-Confidence Predictions**
+
    ```python
    high_confidence = results[results['confidence'] > 0.8]
    top_candidates = high_confidence.nlargest(10, 'probability')
    ```
 
 2. **Consider Safety First**
+
    ```python
    # Always use safe mode for lab exports
    export_for_lab(results, safe_mode=True)
    ```
 
 3. **Monitor Calibration**
+
    ```python
    cal_info = classifier.get_calibration_summary()
    if cal_info['expected_calibration_error'] > 0.15:
@@ -355,6 +396,7 @@ conda install -c conda-forge pymatgen
 ### Example Scripts
 
 #### Basic Prediction Script
+
 ```python
 #!/usr/bin/env python3
 import pandas as pd
@@ -376,6 +418,7 @@ print("Predictions saved to predictions.csv")
 ```
 
 #### Advanced Analysis Script
+
 ```python
 #!/usr/bin/env python3
 import pandas as pd
@@ -407,6 +450,7 @@ plt.show()
 ## Changelog
 
 ### Version 1.0.0 (January 2026)
+
 - ✅ Complete rewrite for synthesizability prediction
 - ✅ Real Materials Project data integration
 - ✅ Advanced calibration and ensemble methods
@@ -414,24 +458,16 @@ plt.show()
 - ✅ Comprehensive documentation and examples
 
 ### Version 0.9.0 (December 2025)
+
 - ✅ Gradio web interface
 - ✅ Basic calibration implementation
 - ✅ Materials Project API integration
 
 ### Version 0.8.0 (November 2025)
+
 - ✅ Initial ML model with Random Forest
 - ✅ Basic prediction functionality
 - ✅ Synthetic data validation
-
----
-
-## Success Stories
-
-*"This tool saved us months of experimental work by helping us prioritize which of our 200 DFT-predicted materials to synthesize first. We successfully synthesized 3 new alloys that showed promising magnetic properties."*
-
-*"The calibration feature gives us confidence in the predictions. We can now focus our limited lab resources on materials with the highest chance of success."*
-
-*"The safety filtering is a game-changer for our student lab. It prevents accidents while still allowing access to interesting materials with proper oversight."*
 
 ---
 

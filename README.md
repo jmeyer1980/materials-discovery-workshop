@@ -2,6 +2,8 @@
 
 - **Predict which computationally designed materials can actually be synthesized in the laboratory**
 
+**No-Endorsement Notice:** This is an independent research application and is not sponsored or endorsed by Materials Project or the NOME lab.
+
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
 [![Materials Project](https://img.shields.io/badge/data-Materials_Project-orange.svg)](https://materialsproject.org/)

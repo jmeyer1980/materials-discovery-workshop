@@ -2,6 +2,8 @@
 
 This guide provides instructions for deploying the Materials Discovery Workshop Gradio web application to Google Cloud Run and HuggingFace Spaces.
 
+**No-Endorsement Notice:** This independent application is not sponsored or endorsed by Materials Project or the NOME lab.
+
 ## 🚀 Application Overview
 
 The Gradio app provides an interactive interface for:

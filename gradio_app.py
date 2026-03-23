@@ -34,6 +34,58 @@ plt.style.use('default')
 
 
 # ============================================================================
+# CENTRALIZED TUNABLE CONSTANTS
+# ============================================================================
+
+TRAINING_SLIDER_CONFIG = {
+    # Latent dimension means the size of the compressed representation in the VAE.
+    # A smaller latent dimension forces the model to learn a more compact representation of the data,
+    # which can help with generalization and prevent overfitting, especially with small datasets.
+    # However, if it's too small, it may not capture enough information to generate diverse materials.
+    # A value of 8 is a reasonable starting point for a simple dataset,
+    # but this can be tuned based on the complexity of the data and the desired diversity of generated materials.
+    'latent_dim': {'min': 4, 'max': 64, 'default': 8, 'step': 1},
+    # Number of training epochs for the VAE. More epochs allow the model to learn better representations,
+    # but too many can lead to overfitting, especially with small datasets.
+    # Starting with 120 epochs is a good balance for a simple dataset,
+    # but this can be adjusted based on the observed training and validation loss curves.
+    'epochs': {'min': 25, 'max': 1000, 'default': 120, 'step': 25},
+}
+
+VAE_TRAINING_CONFIG = {
+    'batch_size': 32,
+    'learning_rate': 0.005,
+    # scheduler_gamma is the decay factor for the learning rate scheduler.
+    # A value of 0.995 means the learning rate will decay by 0.5% every epoch.
+    'scheduler_gamma': 0.995,
+    # kl_warmup_epochs is the number of epochs over which to linearly increase
+    # the weight of the KL divergence loss term.
+    'kl_warmup_epochs': 10.0,
+}
+
+COMPOSITION_CONSTRAINTS = {
+    'min_fraction': 0.05,
+    'max_fraction': 0.95,
+    'sum_tolerance': 1e-6,
+}
+
+ENSEMBLE_POLICY_DEFAULTS = {
+    'ml_base_weight': 0.7,
+    'llm_base_weight': 0.3,
+    'in_dist_bonus': 0.15,
+    'out_dist_penalty': -0.10,
+    'ml_weight_min': 0.55,
+    'ml_weight_max': 0.9,
+}
+
+LIVE_SAFETY_DEFAULTS = {
+    'min_synth_probability': 0.8,
+    'max_energy_above_hull': 0.15,
+    'require_in_distribution': True,
+}
+
+
+# ============================================================================
 # VAE MODEL AND TRAINING
 # ============================================================================
 
@@ -150,10 +202,10 @@ def train_vae_model(features_scaled: np.ndarray, latent_dim: int = 5, epochs: in
 
     features_tensor = torch.FloatTensor(features_scaled)
     dataset = torch.utils.data.TensorDataset(features_tensor, features_tensor)
-    dataloader = DataLoader(dataset, batch_size=32, shuffle=True)
+    dataloader = DataLoader(dataset, batch_size=VAE_TRAINING_CONFIG['batch_size'], shuffle=True)
 
-    optimizer = optim.Adam(model.parameters(), lr=0.005)
-    scheduler = optim.lr_scheduler.ExponentialLR(optimizer, gamma=0.995)
+    optimizer = optim.Adam(model.parameters(), lr=VAE_TRAINING_CONFIG['learning_rate'])
+    scheduler = optim.lr_scheduler.ExponentialLR(optimizer, gamma=VAE_TRAINING_CONFIG['scheduler_gamma'])
 
     model.train()
     for epoch in range(epochs):
@@ -164,7 +216,7 @@ def train_vae_model(features_scaled: np.ndarray, latent_dim: int = 5, epochs: in
             reconstruction_loss = nn.functional.mse_loss(reconstructed, batch_x, reduction='sum')
             kl_loss = -0.5 * torch.sum(1 + log_var - mu.pow(2) - log_var.exp())
 
-            kl_weight = min(1.0, epoch / 10.0)
+            kl_weight = min(1.0, epoch / VAE_TRAINING_CONFIG['kl_warmup_epochs'])
             loss = reconstruction_loss + kl_weight * kl_loss
 
             optimizer.zero_grad()
@@ -175,7 +227,13 @@ def train_vae_model(features_scaled: np.ndarray, latent_dim: int = 5, epochs: in
 
     return model
 
-def generate_materials(model: OptimizedVAE, scaler: StandardScaler, num_samples: int = 100) -> pd.DataFrame:
+def generate_materials(
+    model: OptimizedVAE,
+    scaler: StandardScaler,
+    num_samples: int = 100,
+    composition_min: float = COMPOSITION_CONSTRAINTS['min_fraction'],
+    composition_max: float = COMPOSITION_CONSTRAINTS['max_fraction'],
+) -> pd.DataFrame:
     """Generate new materials using trained VAE with tight composition constraints."""
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     model.eval()
@@ -188,16 +246,19 @@ def generate_materials(model: OptimizedVAE, scaler: StandardScaler, num_samples:
         generated_features = model.decode(z).cpu().numpy()
         generated_features = scaler.inverse_transform(generated_features)
 
+    if composition_min >= composition_max:
+        raise ValueError(f"Invalid composition bounds: min={composition_min} must be < max={composition_max}")
+
     for i, features in enumerate(generated_features):
         # Randomly select elements
         elem1, elem2 = random.sample(elements, 2)
 
         # Enforce tight composition constraints (5-95% range)
-        comp1 = np.clip(features[0], 0.05, 0.95)
+        comp1 = np.clip(features[0], composition_min, composition_max)
         comp2 = 1.0 - comp1
 
         # Assert composition validity (within floating point tolerance)
-        assert abs(comp1 + comp2 - 1.0) < 1e-6, f"Composition constraint violated: {comp1} + {comp2} = {comp1 + comp2}"
+        assert abs(comp1 + comp2 - 1.0) < COMPOSITION_CONSTRAINTS['sum_tolerance'], f"Composition constraint violated: {comp1} + {comp2} = {comp1 + comp2}"
 
         # Generate synthetic properties for required ML fields
         formation_energy = np.random.normal(-1.5, 1.0)
@@ -233,7 +294,7 @@ def generate_materials(model: OptimizedVAE, scaler: StandardScaler, num_samples:
     df = pd.DataFrame(new_materials)
     
     # CRITICAL: HARD FIELD VALIDATION - Ensure all required fields exist
-    required_fields = ['formation_energy_per_atom', 'energy_above_hull', 'band_gap', 'nsites', 'density', 'electronegativity', 'atomic_radius']
+    required_fields = list(REQUIRED_FIELDS)
     
     print(f"Before hard field validation in generate_materials: {len(df)} rows, columns: {list(df.columns)}")
     
@@ -273,8 +334,12 @@ def generate_materials(model: OptimizedVAE, scaler: StandardScaler, num_samples:
     
     return df
 
-def run_synthesizability_analysis(materials_df: pd.DataFrame, ml_classifier: SynthesizabilityClassifier,
-                                llm_predictor: LLMSynthesizabilityPredictor) -> pd.DataFrame:
+def run_synthesizability_analysis(
+    materials_df: pd.DataFrame,
+    ml_classifier: SynthesizabilityClassifier,
+    llm_predictor: LLMSynthesizabilityPredictor,
+    ensemble_policy: dict | None = None,
+) -> pd.DataFrame:
     """Run complete synthesizability analysis on materials, separating thermodynamic stability from experimental synthesizability."""
     # Prepare data for analysis
     analysis_df = materials_df.copy()
@@ -316,7 +381,7 @@ def run_synthesizability_analysis(materials_df: pd.DataFrame, ml_classifier: Syn
             return None
 
         # Ensure all required columns exist with proper field mapping
-        required_fields = ['formation_energy_per_atom', 'energy_above_hull', 'band_gap', 'nsites', 'density', 'electronegativity', 'atomic_radius']
+        required_fields = list(REQUIRED_FIELDS)
         
         for target_field in required_fields:
             if target_field not in analysis_df.columns:
@@ -365,6 +430,9 @@ def run_synthesizability_analysis(materials_df: pd.DataFrame, ml_classifier: Syn
                 # Convert to numeric, coerce errors to NaN, then fill with reasonable defaults
                 original_values = analysis_df[col].copy()
                 analysis_df[col] = pd.to_numeric(analysis_df[col], errors='coerce')
+                introduced_nan_count = int((analysis_df[col].isna() & original_values.notna()).sum())
+                if introduced_nan_count > 0:
+                    print(f"Field '{col}': coerced {introduced_nan_count} non-numeric values to NaN")
                 
                 # Fill NaN values with reasonable defaults based on field type
                 if col in ['formation_energy_per_atom', 'energy_above_hull']:
@@ -403,8 +471,8 @@ def run_synthesizability_analysis(materials_df: pd.DataFrame, ml_classifier: Syn
 
     # Debug: Print final column status
     print(f"Final columns after processing: {list(analysis_df.columns)}")
-    print(f"Required fields status:")
-    required_fields = ['formation_energy_per_atom', 'energy_above_hull', 'band_gap', 'nsites', 'density', 'electronegativity', 'atomic_radius']
+    print("Required fields status:")
+    required_fields = list(REQUIRED_FIELDS)
     for field in required_fields:
         if field in analysis_df.columns:
             print(f"  ✓ {field}: {analysis_df[field].dtype}, min={analysis_df[field].min():.3f}, max={analysis_df[field].max():.3f}")
@@ -489,14 +557,28 @@ def run_synthesizability_analysis(materials_df: pd.DataFrame, ml_classifier: Syn
     results_df['llm_confidence'] = [p['confidence'] for p in llm_predictions]
 
     # Ensemble prediction for experimental synthesizability using distribution-aware weighting
+    if ensemble_policy is None:
+        ensemble_policy = ENSEMBLE_POLICY_DEFAULTS
+
     try:
         ensemble_weights = ml_classifier.ensemble_weights
-    except:
-        ensemble_weights = {'ml': 0.7, 'llm': 0.3}
+    except Exception:
+        ensemble_weights = {
+            'ml': ensemble_policy['ml_base_weight'],
+            'llm': ensemble_policy['llm_base_weight'],
+        }
 
     if 'in_distribution' in results_df.columns:
-        in_dist_adjustment = np.where(results_df['in_distribution'] == 'in-dist', 0.15, -0.10)
-        ml_weight_row = np.clip(ensemble_weights['ml'] + in_dist_adjustment, 0.55, 0.9)
+        in_dist_adjustment = np.where(
+            results_df['in_distribution'] == 'in-dist',
+            ensemble_policy['in_dist_bonus'],
+            ensemble_policy['out_dist_penalty'],
+        )
+        ml_weight_row = np.clip(
+            ensemble_weights['ml'] + in_dist_adjustment,
+            ensemble_policy['ml_weight_min'],
+            ensemble_policy['ml_weight_max'],
+        )
     else:
         ml_weight_row = np.full(len(results_df), ensemble_weights['ml'])
 
@@ -548,6 +630,7 @@ def get_synthesis_methods_reference() -> pd.DataFrame:
     methods_data = []
     for method_key, method_info in SYNTHESIS_METHODS.items():
         methods_data.append({
+            'Method Key': method_key,
             'Method': method_info['name'],
             'Description': method_info['description'],
             'Temperature Range': f"{method_info['temperature_range']['typical']}°C ({method_info['temperature_range']['min']}-{method_info['temperature_range']['max']}°C)",
@@ -730,6 +813,10 @@ def create_gradio_interface():
     # Initialize synthesis methods reference table
     methods_ref_df = get_synthesis_methods_reference()
 
+    default_min_synth_probability = LIVE_SAFETY_DEFAULTS['min_synth_probability']
+    default_max_energy_above_hull = LIVE_SAFETY_DEFAULTS['max_energy_above_hull']
+    default_require_in_distribution = LIVE_SAFETY_DEFAULTS['require_in_distribution']
+
     def ensure_fields_exist(df, required_fields):
         """Ensure all required fields exist in DataFrame - HARD GUARANTEE."""
         df_copy = df.copy()
@@ -853,10 +940,10 @@ def create_gradio_interface():
             
             features_tensor = torch.FloatTensor(features_scaled)
             dataset_tensor = torch.utils.data.TensorDataset(features_tensor, features_tensor)
-            dataloader = DataLoader(dataset_tensor, batch_size=32, shuffle=True)
+            dataloader = DataLoader(dataset_tensor, batch_size=VAE_TRAINING_CONFIG['batch_size'], shuffle=True)
             
-            optimizer = optim.Adam(vae_model.parameters(), lr=0.005)
-            scheduler = optim.lr_scheduler.ExponentialLR(optimizer, gamma=0.995)
+            optimizer = optim.Adam(vae_model.parameters(), lr=VAE_TRAINING_CONFIG['learning_rate'])
+            scheduler = optim.lr_scheduler.ExponentialLR(optimizer, gamma=VAE_TRAINING_CONFIG['scheduler_gamma'])
             
             vae_model.train()
             for epoch in range(epochs):
@@ -871,7 +958,7 @@ def create_gradio_interface():
                     reconstruction_loss = nn.functional.mse_loss(reconstructed, batch_x, reduction='sum')
                     kl_loss = -0.5 * torch.sum(1 + log_var - mu.pow(2) - log_var.exp())
                     
-                    kl_weight = min(1.0, epoch / 10.0)
+                    kl_weight = min(1.0, epoch / VAE_TRAINING_CONFIG['kl_warmup_epochs'])
                     loss = reconstruction_loss + kl_weight * kl_loss
                     
                     optimizer.zero_grad()
@@ -918,24 +1005,45 @@ def create_gradio_interface():
             is_initialized = False
             return error_msg, gr.Button(interactive=False)
 
-    def generate_and_analyze(num_samples, available_equipment):
+    def generate_and_analyze(
+        num_samples,
+        available_equipment,
+        safety_acknowledgment,
+        composition_min,
+        composition_max,
+        min_synth_probability,
+        max_energy_above_hull,
+        require_in_distribution,
+        ml_base_weight,
+        in_dist_bonus,
+        out_dist_penalty,
+    ):
         """STEP 2: Generate materials and run analysis - ONLY after initialization."""
         global ml_classifier, ml_metrics, vae_model, vae_scaler, is_initialized
         
         if not is_initialized or vae_model is None or ml_classifier is None:
             return "❌ Please initialize models first by clicking 'Initialize Models' button above.", None, pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), None, None
+
+        if not safety_acknowledgment:
+            return "❌ Please acknowledge the safety warnings checkbox before generating materials.", None, pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), None, None
         
         try:
             print(f"\nStarting generation with num_samples={num_samples}")
 
             # Generate materials
-            generated_df = generate_materials(vae_model, vae_scaler, num_samples=num_samples)
+            generated_df = generate_materials(
+                vae_model,
+                vae_scaler,
+                num_samples=num_samples,
+                composition_min=composition_min,
+                composition_max=composition_max,
+            )
             print(f"Generated materials: {len(generated_df)} rows, columns: {list(generated_df.columns)}")
             if generated_df.empty:
                 raise ValueError("Material generation returned empty DataFrame")
             
             # CRITICAL: HARD FIELD VALIDATION - Ensure all required fields exist
-            required_fields = ['formation_energy_per_atom', 'energy_above_hull', 'band_gap', 'nsites', 'density', 'electronegativity', 'atomic_radius']
+            required_fields = list(REQUIRED_FIELDS)
             generated_df = ensure_fields_exist(generated_df, required_fields)
             print(f"After hard field validation: {len(generated_df)} rows, columns: {list(generated_df.columns)}")
             
@@ -965,23 +1073,23 @@ def create_gradio_interface():
                 from centralized_field_mapping import apply_field_mapping_to_generation
                 
                 if DOCKER_DEBUG:
-                    print(f"[DOCKER DEBUG] DataFrame state before centralized mapping:")
+                    print("[DOCKER DEBUG] DataFrame state before centralized mapping:")
                     print(f"[DOCKER DEBUG]   Rows: {len(generated_df)}, Columns: {list(generated_df.columns)}")
                 
                 generated_df = apply_field_mapping_to_generation(generated_df)
                 
                 if DOCKER_DEBUG:
-                    print(f"[DOCKER DEBUG] After centralized field mapping:")
+                    print("[DOCKER DEBUG] After centralized field mapping:")
                     print(f"[DOCKER DEBUG]   Rows: {len(generated_df)}, Columns: {list(generated_df.columns)}")
                 else:
                     print(f"After field mapping before analysis: {len(generated_df)} rows, columns: {list(generated_df.columns)}")
                 
                 # MANDATORY FIELD VERIFICATION: Check if required fields are present
-                required_fields = ['formation_energy_per_atom', 'energy_above_hull', 'band_gap', 'nsites', 'density', 'electronegativity', 'atomic_radius']
+                required_fields = list(REQUIRED_FIELDS)
                 missing_fields = [field for field in required_fields if field not in generated_df.columns]
                 
                 if DOCKER_DEBUG:
-                    print(f"[DOCKER DEBUG] Checking for required fields...")
+                    print("[DOCKER DEBUG] Checking for required fields...")
                     print(f"[DOCKER DEBUG] Required: {required_fields}")
                     print(f"[DOCKER DEBUG] Missing: {missing_fields}")
                 
@@ -1011,7 +1119,7 @@ def create_gradio_interface():
                             generated_df[field] = np.clip(generated_df[field], 0.8, 2.2)
                     
                     if DOCKER_DEBUG:
-                        print(f"[DOCKER DEBUG] Added fallback fields successfully")
+                        print("[DOCKER DEBUG] Added fallback fields successfully")
                     else:
                         print("Added fallback fields")
                 
@@ -1027,13 +1135,27 @@ def create_gradio_interface():
                     raise ValueError(error_msg)
                 
                 if DOCKER_DEBUG:
-                    print(f"[DOCKER DEBUG] All required fields verified present")
-                    print(f"[DOCKER DEBUG] Generated DataFrame Content (first 3 rows):")
+                    print("[DOCKER DEBUG] All required fields verified present")
+                    print("[DOCKER DEBUG] Generated DataFrame Content (first 3 rows):")
                     print(generated_df.head(3))
                 else:
                     print("✅ All required fields verified present before analysis")
                 
-                results_df = run_synthesizability_analysis(generated_df, ml_classifier, llm_predictor)
+                ensemble_policy = {
+                    'ml_base_weight': ml_base_weight,
+                    'llm_base_weight': 1.0 - ml_base_weight,
+                    'in_dist_bonus': in_dist_bonus,
+                    'out_dist_penalty': out_dist_penalty,
+                    'ml_weight_min': ENSEMBLE_POLICY_DEFAULTS['ml_weight_min'],
+                    'ml_weight_max': ENSEMBLE_POLICY_DEFAULTS['ml_weight_max'],
+                }
+
+                results_df = run_synthesizability_analysis(
+                    generated_df,
+                    ml_classifier,
+                    llm_predictor,
+                    ensemble_policy=ensemble_policy,
+                )
                 print(f"Analysis completed: {len(results_df)} rows, columns: {list(results_df.columns)}")
                 if results_df.empty:
                     raise ValueError("Synthesizability analysis returned empty DataFrame")
@@ -1045,6 +1167,15 @@ def create_gradio_interface():
 
             # Calculate priorities
             priority_df = calculate_synthesis_priority(results_df)
+
+            # Live safety filter driven by UI controls
+            recommended_mask = (
+                (results_df['ensemble_probability'] >= min_synth_probability)
+                & (results_df['energy_above_hull'] <= max_energy_above_hull)
+            )
+            if require_in_distribution and 'in_distribution' in results_df.columns:
+                recommended_mask = recommended_mask & (results_df['in_distribution'] == 'in-dist')
+            recommended_count = int(recommended_mask.sum())
 
             # Add weight percent and feedstock calculations
             try:
@@ -1089,10 +1220,17 @@ def create_gradio_interface():
             - Total materials generated: {total_materials}
             - Predicted synthesizable: {synthesizable_count} ({synthesizable_count/total_materials*100:.1f}%)
             - High confidence predictions: {len(high_confidence)} ({len(high_confidence)/total_materials*100:.1f}%)
+            - Safety-passing candidates (live thresholds): {recommended_count}
 
             **Priority Analysis:**
             - Top priority materials identified: 10
             - Materials with priority > 0.7: {(priority_df['synthesis_priority_score'] > 0.7).sum()}
+
+            **Live Control Thresholds:**
+            - Composition bounds: [{composition_min:.2f}, {composition_max:.2f}]
+            - Min synthesizability probability: {min_synth_probability:.2f}
+            - Max energy above hull: {max_energy_above_hull:.3f} eV/atom
+            - Require in-distribution: {require_in_distribution}
 
             **Cost-Benefit Analysis:**
             - Positive ROI candidates: {len(cba_df[cba_df['net_benefit'] > 0])}/5
@@ -1318,8 +1456,31 @@ def create_gradio_interface():
         Adjust the parameters below to explore different material generation scenarios.
         """)
 
-        # SAFETY & LIMITATIONS PANEL - HIGH PRIORITY WARNING
+        # ONBOARDING PANEL - API registration/authentication and terms pointer first
         gr.Markdown("""
+        ## 🚀 Onboarding
+
+        ### 1) Register for Materials Project API Access
+        **Get your free API key at: [https://materialsproject.org/api](https://materialsproject.org/api)**
+
+        ### 2) Authenticate in this App
+        Enter your API key below. If omitted, the app falls back to synthetic data.
+
+        ### 3) Review Terms & Safety
+        Review the **Safety & Limitations** tab and complete the safety acknowledgment before generation.
+
+        **No-Endorsement Notice:** This is an independent research application. It is **not sponsored or endorsed** by Materials Project or the NOME lab. The app uses public/open resources and can export candidates for downstream NOME-compatible workflows.
+        """)
+
+        api_key_input = gr.Textbox(
+            label="Materials Project API Key",
+            placeholder="Enter your API key from materialsproject.org/api",
+            type="password",
+            info="Required for accessing real materials data. Leave empty to use synthetic data only."
+        )
+
+        # SAFETY & LIMITATIONS PANEL - HIGH PRIORITY WARNING
+        gr.Markdown(f"""
         ---
         ## ⚠️ **CRITICAL SAFETY & MODEL LIMITATIONS**
 
@@ -1328,13 +1489,14 @@ def create_gradio_interface():
         ### **Key Limitations:**
         - **Predictions are statistical, not deterministic** - All results should be experimentally validated
         - **Model trained on Materials Project calculations** - Real synthesis may differ due to kinetics, impurities, and scale effects
+        - **Independent tool, no institutional endorsement** - Not sponsored or endorsed by Materials Project or the NOME lab
         - **For novel element combinations, treat as exploratory** - Higher uncertainty for compositions not in training data
         - **Always validate with literature and lab-scale experiments before scaling up**
         - **See Model Diagnostics tab for full performance metrics and calibration status**
 
         ### **Safe Usage Guidelines:**
-        - Start with **high-confidence candidates** (ensemble probability ≥ 0.8)
-        - **Verify thermodynamic stability** (E_hull ≤ 0.1 eV/atom OR human override)
+        - Start with **high-confidence candidates** (ensemble probability ≥ {default_min_synth_probability:.2f})
+        - **Verify thermodynamic stability** (E_hull ≤ {default_max_energy_above_hull:.3f} eV/atom OR human override)
         - **Check in-distribution status** (materials similar to training data are more reliable)
         - **Review equipment compatibility** before attempting synthesis
         - **Log experimental outcomes** to improve future predictions
@@ -1349,37 +1511,26 @@ def create_gradio_interface():
         ---
         """)
 
-        gr.Markdown("""
-        ## 🔑 Materials Project API Key (Required)
-
-        To access real materials data from the Materials Project database, you need to provide your own API key.
-        **Get your free API key at: [https://materialsproject.org/api](https://materialsproject.org/api)**
-
-        The application will work with synthetic data if no API key is provided, but real Materials Project data
-        provides much more accurate and realistic results for materials discovery.
-        """)
-
-        api_key_input = gr.Textbox(
-            label="Materials Project API Key",
-            placeholder="Enter your API key from materialsproject.org/api",
-            type="password",
-            info="Required for accessing real materials data. Leave empty to use synthetic data only."
-        )
-
         with gr.Row():
             with gr.Column(scale=1):
                 gr.Markdown("### STEP 1: Initialize Models")
                 gr.Markdown("*Train the ML classifier and VAE model before generating materials.*")
                 
                 latent_dim = gr.Slider(
-                    minimum=2, maximum=20, value=5, step=1,
+                    minimum=TRAINING_SLIDER_CONFIG['latent_dim']['min'],
+                    maximum=TRAINING_SLIDER_CONFIG['latent_dim']['max'],
+                    value=TRAINING_SLIDER_CONFIG['latent_dim']['default'],
+                    step=TRAINING_SLIDER_CONFIG['latent_dim']['step'],
                     label="Latent Dimension",
                     info="Complexity of the generative model"
                 )
                 epochs = gr.Slider(
-                    minimum=10, maximum=200, value=50, step=10,
+                    minimum=TRAINING_SLIDER_CONFIG['epochs']['min'],
+                    maximum=TRAINING_SLIDER_CONFIG['epochs']['max'],
+                    value=TRAINING_SLIDER_CONFIG['epochs']['default'],
+                    step=TRAINING_SLIDER_CONFIG['epochs']['step'],
                     label="Training Epochs",
-                    info="How long to train the model"
+                    info="How long to train the model (extended range enabled for longer training)"
                 )
                 tertiary_control_mode = gr.Dropdown(
                     choices=["Auto", "Forced On", "Forced Off"],
@@ -1421,6 +1572,61 @@ def create_gradio_interface():
 
                 generate_btn = gr.Button("🚀 Generate Materials", variant="primary", size="lg", interactive=False)
 
+                with gr.Accordion("⚙️ Advanced Live Controls", open=False):
+                    composition_min_slider = gr.Slider(
+                        minimum=0.01,
+                        maximum=0.45,
+                        value=COMPOSITION_CONSTRAINTS['min_fraction'],
+                        step=0.01,
+                        label="Minimum composition fraction",
+                    )
+                    composition_max_slider = gr.Slider(
+                        minimum=0.55,
+                        maximum=0.99,
+                        value=COMPOSITION_CONSTRAINTS['max_fraction'],
+                        step=0.01,
+                        label="Maximum composition fraction",
+                    )
+                    min_synth_probability_slider = gr.Slider(
+                        minimum=0.30,
+                        maximum=0.99,
+                        value=LIVE_SAFETY_DEFAULTS['min_synth_probability'],
+                        step=0.01,
+                        label="Minimum synthesizability probability",
+                    )
+                    max_energy_above_hull_slider = gr.Slider(
+                        minimum=0.01,
+                        maximum=0.50,
+                        value=LIVE_SAFETY_DEFAULTS['max_energy_above_hull'],
+                        step=0.005,
+                        label="Maximum energy above hull (eV/atom)",
+                    )
+                    require_in_distribution_checkbox = gr.Checkbox(
+                        value=LIVE_SAFETY_DEFAULTS['require_in_distribution'],
+                        label="Require in-distribution materials for safety-passing set",
+                    )
+                    ml_base_weight_slider = gr.Slider(
+                        minimum=0.10,
+                        maximum=0.95,
+                        value=ENSEMBLE_POLICY_DEFAULTS['ml_base_weight'],
+                        step=0.01,
+                        label="Ensemble ML base weight",
+                    )
+                    in_dist_bonus_slider = gr.Slider(
+                        minimum=0.00,
+                        maximum=0.30,
+                        value=ENSEMBLE_POLICY_DEFAULTS['in_dist_bonus'],
+                        step=0.01,
+                        label="In-distribution ML bonus",
+                    )
+                    out_dist_penalty_slider = gr.Slider(
+                        minimum=-0.30,
+                        maximum=0.00,
+                        value=ENSEMBLE_POLICY_DEFAULTS['out_dist_penalty'],
+                        step=0.01,
+                        label="Out-of-distribution ML penalty",
+                    )
+
             with gr.Column(scale=2):
                 gr.Markdown("### Results Summary")
                 summary_output = gr.Markdown()
@@ -1454,10 +1660,10 @@ def create_gradio_interface():
                     """)
 
                 with gr.Accordion("⚠️ Critical Safety Warnings", open=True):
-                    gr.Markdown("""
+                    gr.Markdown(f"""
                     ### **Immediate Safety Concerns:**
-                    - **Do not synthesize materials with E_hull > 0.15 eV/atom** - Thermodynamically unstable
-                    - **Do not attempt materials with synthesizability probability < 0.3** - Very low success likelihood
+                    - **Do not synthesize materials with E_hull > {default_max_energy_above_hull:.3f} eV/atom** - Thermodynamically unstable
+                    - **Do not attempt materials with synthesizability probability below configured minimum ({default_min_synth_probability:.2f})** - Very low success likelihood
                     - **Review all materials containing toxic elements** before synthesis
                     - **Verify equipment compatibility** before starting experiments
                     - **Start with small batches** (≤10g) for initial validation
@@ -1471,7 +1677,7 @@ def create_gradio_interface():
                     """)
 
                 with gr.Accordion("📊 Model Performance & Reliability", open=True):
-                    gr.Markdown("""
+                    gr.Markdown(f"""
                     ### **Expected Performance:**
                     - **Accuracy**: ~85-90% on validation sets
                     - **Calibration**: Well-calibrated probabilities (ECE < 0.15)
@@ -1480,8 +1686,8 @@ def create_gradio_interface():
                     - **False Negative Rate**: ~15-20% (materials predicted unsynthesizable but succeed)
 
                     ### **When to Trust Predictions:**
-                    - ✅ **High Confidence** (probability ≥ 0.8, in-distribution, E_hull ≤ 0.05)
-                    - ⚠️ **Medium Confidence** (probability 0.5-0.8, marginal stability)
+                    - ✅ **High Confidence** (probability ≥ {default_min_synth_probability:.2f}, in-distribution={default_require_in_distribution}, E_hull ≤ {default_max_energy_above_hull:.3f})
+                    - ⚠️ **Medium Confidence** (probability 0.5-{default_min_synth_probability:.2f}, marginal stability)
                     - ❌ **Low Confidence** (probability < 0.5, out-of-distribution, high E_hull)
 
                     ### **Calibration Status:**
@@ -1491,7 +1697,7 @@ def create_gradio_interface():
                     """)
 
                 with gr.Accordion("🔬 Experimental Validation Requirements", open=True):
-                    gr.Markdown("""
+                    gr.Markdown(f"""
                     ### **Required Validation Steps:**
                     1. **Literature Review**: Check if composition has been synthesized before
                     2. **Thermodynamic Assessment**: Verify E_hull using DFT calculations
@@ -1501,7 +1707,7 @@ def create_gradio_interface():
 
                     ### **Recommended Workflow:**
                     1. Generate candidates using this tool
-                    2. Filter for high-confidence predictions (≥0.8 probability)
+                    2. Filter for high-confidence predictions (≥{default_min_synth_probability:.2f} probability)
                     3. Review top 5-10 candidates manually
                     4. Attempt synthesis of highest-priority candidate first
                     5. Log experimental outcomes to improve model
@@ -1517,6 +1723,7 @@ def create_gradio_interface():
                     gr.Markdown("""
                     ### **Scientific Foundation:**
                     - **Materials Project**: materialsproject.org (training data source)
+                    - **No-Endorsement Notice**: This independent application is not sponsored or endorsed by Materials Project or the NOME lab
                     - **Thermodynamic Stability**: E_hull ≤ 0.025 eV/atom threshold (highly stable)
                     - **Machine Learning**: Random Forest + Isotonic Regression calibration
                     - **Validation**: 5-fold cross-validation, probabilistic calibration
@@ -1594,7 +1801,7 @@ def create_gradio_interface():
                 gr.Markdown("### Complete Reference Guide for Synthesis Methods")
                 methods_table = gr.DataFrame(
                     value=methods_ref_df,
-                    headers=["Method", "Description", "Temperature Range", "Atmosphere", "Equipment Needed", "Total Time (hours)", "Cost (USD)", "Success Rate", "Best For", "Reference"],
+                    headers=["Method Key", "Method", "Description", "Temperature Range", "Atmosphere", "Equipment Needed", "Total Time (hours)", "Cost (USD)", "Success Rate", "Best For", "Reference"],
                     label="Synthesis Methods Reference",
                     wrap=True
                 )
@@ -1707,6 +1914,7 @@ def create_gradio_interface():
                 training_data_display = gr.Markdown("""
                 **Data Source Information:**
                 - **Source**: Materials Project (materialsproject.org)
+                - **No-Endorsement**: Independent app; not sponsored or endorsed by Materials Project or the NOME lab
                 - **Count**: 1,000+ binary alloys
                 - **Element Systems**: Al-Ti, Al-Ni, Al-Cu, Fe-Co, etc.
                 - **Date**: January 2026
@@ -1843,7 +2051,7 @@ def create_gradio_interface():
 - **Recommendation**: {'Trust probabilities as-is' if cal_summary.get('expected_calibration_error', 1) < 0.15 else 'Use with caution - may be overconfident'}"""
 
                             # Coverage analysis (placeholder - would need actual coverage calculation)
-                            coverage_info = f"""**Coverage Analysis:**
+                            coverage_info = """**Coverage Analysis:**
 - **In-distribution**: ~78% of generated candidates
 - **Extrapolation**: ~22% (novel compositions)
 - **Last Updated**: January 23, 2026
@@ -1950,11 +2158,11 @@ def create_gradio_interface():
                         )
 
                     with gr.Column():
-                        gr.Markdown("""
+                        gr.Markdown(f"""
                         **Safe Mode Settings:**
-                        - ✅ Ensemble probability ≥ 0.8
+                        - ✅ Ensemble probability ≥ {default_min_synth_probability:.2f}
                         - ✅ Thermodynamic stability = 'highly_stable' OR human override
-                        - ✅ In-distribution materials only (unless override approved)
+                        - ✅ In-distribution materials only = {default_require_in_distribution} (unless override approved)
                         - ✅ No hazardous elements (Be, Hg, Cd, Pb, As, Tl, etc.)
 
                         **Human Override Requirements:**
@@ -2057,7 +2265,19 @@ def create_gradio_interface():
         # Connect generation button
         generate_btn.click(
             fn=generate_and_analyze,
-            inputs=[num_samples, available_equipment],
+            inputs=[
+                num_samples,
+                available_equipment,
+                safety_acknowledgment,
+                composition_min_slider,
+                composition_max_slider,
+                min_synth_probability_slider,
+                max_energy_above_hull_slider,
+                require_in_distribution_checkbox,
+                ml_base_weight_slider,
+                in_dist_bonus_slider,
+                out_dist_penalty_slider,
+            ],
             outputs=[summary_output, plot_output, materials_table, priority_table, workflow_table, cba_table, methods_table, reliability_plot, csv_download]
         )
 

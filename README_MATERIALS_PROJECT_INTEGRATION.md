@@ -2,6 +2,8 @@
 
 This document describes the successful integration of real materials data from the Materials Project database into the Materials Discovery Workshop, replacing synthetic data with actual materials science data.
 
+**No-Endorsement Notice:** This integration uses public APIs and data access. The project is independent and is not sponsored or endorsed by Materials Project or the NOME lab.
+
 ## 🎯 Integration Overview
 
 The workshop now supports two data sources:
