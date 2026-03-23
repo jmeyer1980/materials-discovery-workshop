@@ -55,7 +55,6 @@ def test_generate_compositions_normalizes_values():
 
 try:
     import torch
-    import numpy as np
     import pandas as pd
     from materials_discovery_model import (
         FeatureEngineer,

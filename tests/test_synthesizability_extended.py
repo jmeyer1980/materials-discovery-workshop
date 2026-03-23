@@ -1,9 +1,7 @@
-import numpy as np
 import pandas as pd
 
 from synthesizability_predictor import (
     STABILITY_THRESHOLDS,
-    SYNTHESIS_METHODS,
     add_composition_analysis_to_dataframe,
     calculate_synthesis_priority,
     calculate_thermodynamic_stability_score,
