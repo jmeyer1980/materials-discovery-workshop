@@ -12,6 +12,7 @@ This module provides comprehensive synthesizability prediction capabilities incl
 
 import pandas as pd
 import numpy as np
+import json
 from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier
 from sklearn.model_selection import train_test_split, cross_val_score
 from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, brier_score_loss, precision_recall_curve
@@ -26,6 +27,43 @@ from typing import Dict, List, Tuple
 import warnings
 import os
 warnings.filterwarnings('ignore')
+
+TERTIARY_MIN_ROWS = 50
+TERTIARY_MIN_FRACTION = 0.15
+
+
+def _model_trace(event: str, payload: Dict = None) -> None:
+    """Emit lightweight structured trace logs when MODEL_TRACE is enabled."""
+    if os.getenv("MODEL_TRACE", "0") != "1":
+        return
+    trace_payload = payload or {}
+    try:
+        print(f"[MODEL_TRACE] {event}: {json.dumps(trace_payload, default=str, sort_keys=True)}")
+    except Exception:
+        print(f"[MODEL_TRACE] {event}: {trace_payload}")
+
+
+def summarize_tertiary_coverage(df: pd.DataFrame) -> Dict[str, float]:
+    """Summarize how much non-zero composition_3 signal exists in a dataset."""
+    total_rows = int(len(df))
+    if total_rows == 0 or 'composition_3' not in df.columns:
+        return {
+            'total_rows': total_rows,
+            'tertiary_rows': 0,
+            'tertiary_fraction': 0.0,
+            'recommended': False
+        }
+
+    composition_3 = pd.to_numeric(df['composition_3'], errors='coerce').fillna(0.0)
+    tertiary_rows = int((composition_3 > 1e-6).sum())
+    tertiary_fraction = float(tertiary_rows / total_rows) if total_rows else 0.0
+    recommended = total_rows >= TERTIARY_MIN_ROWS and tertiary_fraction >= TERTIARY_MIN_FRACTION
+    return {
+        'total_rows': total_rows,
+        'tertiary_rows': tertiary_rows,
+        'tertiary_fraction': tertiary_fraction,
+        'recommended': recommended
+    }
 
 # Import field mapping utilities
 from field_mapping_utils import (
@@ -574,6 +612,18 @@ def generate_mock_icsd_data(n_samples: int = 1000) -> pd.DataFrame:
     data = []
 
     for i in range(n_samples):
+        alloy_type = np.random.choice(['binary', 'ternary'], p=[0.7, 0.3])
+        if alloy_type == 'binary':
+            comp1 = np.random.uniform(0.1, 0.9)
+            comp2 = 1.0 - comp1
+            comp3 = 0.0
+        else:
+            comp1 = np.random.uniform(0.15, 0.65)
+            comp2 = np.random.uniform(0.1, 0.6)
+            comp3 = max(0.05, 1.0 - comp1 - comp2)
+            total = comp1 + comp2 + comp3
+            comp1, comp2, comp3 = comp1 / total, comp2 / total, comp3 / total
+
         # Synthesizable materials tend to have:
         # - Lower formation energies (more stable)
         # - Reasonable band gaps
@@ -604,6 +654,9 @@ def generate_mock_icsd_data(n_samples: int = 1000) -> pd.DataFrame:
         density = np.clip(density, 2, 25)
 
         data.append({
+            'composition_1': comp1,
+            'composition_2': comp2,
+            'composition_3': comp3,
             'formation_energy_per_atom': formation_energy,
             'band_gap': band_gap,
             'energy_above_hull': energy_above_hull,
@@ -627,6 +680,18 @@ def generate_mock_mp_only_data(n_samples: int = 1000) -> pd.DataFrame:
     data = []
 
     for i in range(n_samples):
+        alloy_type = np.random.choice(['binary', 'ternary'], p=[0.7, 0.3])
+        if alloy_type == 'binary':
+            comp1 = np.random.uniform(0.1, 0.9)
+            comp2 = 1.0 - comp1
+            comp3 = 0.0
+        else:
+            comp1 = np.random.uniform(0.15, 0.65)
+            comp2 = np.random.uniform(0.1, 0.6)
+            comp3 = max(0.05, 1.0 - comp1 - comp2)
+            total = comp1 + comp2 + comp3
+            comp1, comp2, comp3 = comp1 / total, comp2 / total, comp3 / total
+
         # Theoretical materials tend to have:
         # - Higher formation energies
         # - More extreme properties
@@ -654,6 +719,9 @@ def generate_mock_mp_only_data(n_samples: int = 1000) -> pd.DataFrame:
         density = np.clip(density, 1, 30)
 
         data.append({
+            'composition_1': comp1,
+            'composition_2': comp2,
+            'composition_3': comp3,
             'formation_energy_per_atom': formation_energy,
             'band_gap': band_gap,
             'energy_above_hull': energy_above_hull,
@@ -917,14 +985,24 @@ def create_vae_training_dataset_from_mp(api_key: str = None, n_materials: int = 
 class SynthesizabilityClassifier:
     """ML-based classifier for predicting material synthesizability."""
 
-    def __init__(self, model_type: str = 'random_forest', ensemble_weights: Dict[str, float] = None):
+    def __init__(self, model_type: str = 'random_forest', ensemble_weights: Dict[str, float] = None, include_tertiary_elements: bool | None = None):
         self.model_type = model_type
         self.model = None
         self.scaler = StandardScaler()
-        self.feature_columns = [
+        self.requested_include_tertiary_elements = include_tertiary_elements
+        self.include_tertiary_elements = bool(include_tertiary_elements) if include_tertiary_elements is not None else False
+        self.base_feature_columns = [
             'formation_energy_per_atom', 'band_gap', 'energy_above_hull',
             'electronegativity', 'atomic_radius', 'nsites', 'density'
         ]
+        self.feature_columns = self.base_feature_columns.copy()
+        self.tertiary_coverage_summary = {
+            'total_rows': 0,
+            'tertiary_rows': 0,
+            'tertiary_fraction': 0.0,
+            'recommended': False
+        }
+        self.tertiary_mode_label = 'auto-pending' if include_tertiary_elements is None else ('forced-enabled' if include_tertiary_elements else 'forced-disabled')
         self.is_trained = False
 
         # Ensemble weights (configurable)
@@ -941,10 +1019,37 @@ class SynthesizabilityClassifier:
         self.training_feature_medians = None  # Deterministic defaults for missing fields
         self.decision_threshold = 0.5  # Tuned threshold on calibration split
 
+    def _refresh_feature_columns(self) -> None:
+        self.feature_columns = self.base_feature_columns.copy()
+        if self.include_tertiary_elements:
+            self.feature_columns.extend(['composition_1', 'composition_2', 'composition_3'])
+
+    def _resolve_tertiary_mode(self, training_data: pd.DataFrame) -> None:
+        self.tertiary_coverage_summary = summarize_tertiary_coverage(training_data)
+
+        if self.requested_include_tertiary_elements is None:
+            self.include_tertiary_elements = bool(self.tertiary_coverage_summary['recommended'])
+            self.tertiary_mode_label = 'auto-enabled' if self.include_tertiary_elements else 'auto-disabled'
+        else:
+            self.include_tertiary_elements = bool(self.requested_include_tertiary_elements)
+            self.tertiary_mode_label = 'forced-enabled' if self.include_tertiary_elements else 'forced-disabled'
+
+        self._refresh_feature_columns()
+
     def prepare_training_data(self, api_key: str = None) -> Tuple[pd.DataFrame, pd.Series]:
         """Prepare training data from real Materials Project data or fallback to synthetic."""
         # Try to get real MP data first
         training_data = create_training_dataset_from_mp(api_key=api_key, n_materials=1000)
+
+        self._resolve_tertiary_mode(training_data)
+
+        if self.include_tertiary_elements:
+            if 'composition_1' not in training_data.columns:
+                training_data['composition_1'] = 0.5
+            if 'composition_2' not in training_data.columns:
+                training_data['composition_2'] = 0.5
+            if 'composition_3' not in training_data.columns:
+                training_data['composition_3'] = 0.0
 
         X = training_data[self.feature_columns]
         y = training_data['synthesizable']
@@ -954,6 +1059,14 @@ class SynthesizabilityClassifier:
     def train(self, test_size: float = 0.2, api_key: str = None):
         """Train the synthesizability classifier with calibrated probabilities and in-distribution detection."""
         X, y = self.prepare_training_data(api_key=api_key)
+        _model_trace("train_start", {
+            'include_tertiary_elements': self.include_tertiary_elements,
+            'tertiary_mode_label': self.tertiary_mode_label,
+            'tertiary_coverage_summary': self.tertiary_coverage_summary,
+            'feature_columns': self.feature_columns,
+            'n_samples': int(len(X)),
+            'class_balance': y.value_counts().to_dict()
+        })
 
         class_counts = y.value_counts()
         if len(class_counts) < 2:
@@ -1102,6 +1215,15 @@ class SynthesizabilityClassifier:
 
         self.is_trained = True
         self.calibration_metrics = self.compute_calibration_metrics(y_test.values, y_test_prob)
+
+        _model_trace("train_complete", {
+            'include_tertiary_elements': self.include_tertiary_elements,
+            'tertiary_mode_label': self.tertiary_mode_label,
+            'feature_columns': self.feature_columns,
+            'accuracy': float(metrics['accuracy']),
+            'f1_score': float(metrics['f1_score']),
+            'decision_threshold': float(self.decision_threshold)
+        })
 
         return metrics
 
@@ -1281,6 +1403,14 @@ class SynthesizabilityClassifier:
         if not self.is_trained:
             raise ValueError("Model must be trained before making predictions")
 
+        _model_trace("predict_start", {
+            'include_tertiary_elements': self.include_tertiary_elements,
+            'tertiary_mode_label': self.tertiary_mode_label,
+            'feature_columns': self.feature_columns,
+            'input_rows': int(len(materials_df)),
+            'input_columns': list(materials_df.columns)
+        })
+
         # Docker debug mode for verbose logging
         import os
         DOCKER_DEBUG = os.getenv("DOCKER_DEBUG", "0") == "1"
@@ -1309,7 +1439,9 @@ class SynthesizabilityClassifier:
         
         # UNCONDITIONAL FALLBACK: Always ensure all required fields exist
         # This runs regardless of whether centralized mapping succeeded
-        required_fields = ['formation_energy_per_atom', 'energy_above_hull', 'band_gap', 'nsites', 'density', 'electronegativity', 'atomic_radius']
+        required_fields = self.base_feature_columns.copy()
+        if self.include_tertiary_elements:
+            required_fields.extend(['composition_1', 'composition_2', 'composition_3'])
         
         if DOCKER_DEBUG:
             print(f"[DOCKER DEBUG] Checking for missing fields...")
@@ -1321,7 +1453,10 @@ class SynthesizabilityClassifier:
             'nsites': 6,
             'density': 7.0,
             'electronegativity': 1.8,
-            'atomic_radius': 1.4
+            'atomic_radius': 1.4,
+            'composition_1': 0.5,
+            'composition_2': 0.5,
+            'composition_3': 0.0
         }
 
         for field in required_fields:
@@ -1431,6 +1566,14 @@ class SynthesizabilityClassifier:
             results_df['nn_distance'] = nn_distances
             results_df['in_distribution'] = np.where(nn_distances <= distance_threshold, 'in-dist', 'out-dist')
 
+        _model_trace("predict_complete", {
+            'include_tertiary_elements': self.include_tertiary_elements,
+            'tertiary_mode_label': self.tertiary_mode_label,
+            'output_rows': int(len(results_df)),
+            'mean_probability': float(np.mean(probabilities)) if len(probabilities) else None,
+            'predicted_positive_rate': float(np.mean(predictions)) if len(predictions) else None
+        })
+
         return results_df
 
     def predict_single(self, material_properties: Dict) -> Dict:
@@ -1494,6 +1637,7 @@ class LLMSynthesizabilityPredictor:
         if (self.rules['thermodynamic_stability']['formation_energy_min'] <=
             formation_energy <= self.rules['thermodynamic_stability']['formation_energy_max']):
             score += 1.5
+
             reasons.append(f"Formation energy ({formation_energy:.3f} eV/atom) is reasonable")
         else:
             reasons.append(f"Formation energy ({formation_energy:.3f} eV/atom) is extreme")
@@ -1680,17 +1824,17 @@ def recommend_synthesis_method(material_data: Dict, available_equipment: List[st
         reasons = []
 
         # Check equipment availability
-        if available_equipment:
-            has_required_equipment = all(eq in available_equipment for eq in method_info['equipment_needed'])
-            if not has_required_equipment:
-                method_scores[method_key] = {'score': -1, 'reason': 'Required equipment not available'}
-                continue
+        has_required_equipment = all(eq in available_equipment for eq in method_info['equipment_needed'])
+        if not has_required_equipment:
+            method_scores[method_key] = {'score': -1, 'reason': 'Required equipment not available'}
+            continue
 
         # Score based on material properties and method suitability
 
         # Arc melting - best for conductive metals and alloys
         if method_key == 'arc_melting':
             if band_gap < 2.0:  # Metallic or narrow bandgap
+
                 score += 3.0
                 reasons.append("Suitable for metallic systems")
             if density > 6.0:  # Dense materials

@@ -758,7 +758,7 @@ def create_gradio_interface():
                     df_copy[field] = np.clip(df_copy[field], 0.8, 2.2)
         return df_copy
 
-    def initialize_models(api_key, latent_dim, epochs, progress=gr.Progress()):
+    def initialize_models(api_key, latent_dim, epochs, tertiary_control_mode, enable_model_trace, progress=gr.Progress()):
         """STEP 1: Initialize ML classifier and VAE with API key - SEPARATE from generation."""
         global ml_classifier, ml_metrics, vae_model, vae_scaler, is_initialized
         
@@ -767,11 +767,20 @@ def create_gradio_interface():
             print("=" * 60)
             print("STEP 1: INITIALIZING MODELS AND AUTHENTICATING WITH MP API")
             print("=" * 60)
+            os.environ["MODEL_TRACE"] = "1" if enable_model_trace else "0"
+            if tertiary_control_mode == "Forced On":
+                requested_tertiary_mode = True
+            elif tertiary_control_mode == "Forced Off":
+                requested_tertiary_mode = False
+            else:
+                requested_tertiary_mode = None
             
             # Initialize ML classifier and train with provided API key
             progress(0.1, desc="📊 Training ML Classifier...")
             print("\n1. Training ML Classifier...")
-            ml_classifier = SynthesizabilityClassifier()
+            ml_classifier = SynthesizabilityClassifier(
+                include_tertiary_elements=requested_tertiary_mode
+            )
             ml_metrics = ml_classifier.train(api_key=api_key)
             print(f"✅ ML Classifier trained: Accuracy={ml_metrics['accuracy']:.3f}, F1={ml_metrics['f1_score']:.3f}")
             progress(0.4, desc="✅ ML Classifier trained successfully!")
@@ -886,6 +895,8 @@ def create_gradio_interface():
             
             **Models Ready:**
             - ✅ ML Classifier trained (Accuracy: {ml_metrics['accuracy']:.1%}, F1: {ml_metrics['f1_score']:.3f})
+            - ✅ Tertiary composition features: {ml_classifier.tertiary_mode_label} ({ml_classifier.tertiary_coverage_summary['tertiary_rows']}/{ml_classifier.tertiary_coverage_summary['total_rows']} rows with non-zero composition_3, {ml_classifier.tertiary_coverage_summary['tertiary_fraction']:.1%} coverage)
+            - ✅ Model tracing: {'Enabled' if enable_model_trace else 'Disabled'}
             - ✅ VAE model trained (Latent Dim: {latent_dim}, Epochs: {epochs})
             - ✅ Materials Project data loaded and processed
             
@@ -1369,6 +1380,17 @@ def create_gradio_interface():
                     minimum=10, maximum=200, value=50, step=10,
                     label="Training Epochs",
                     info="How long to train the model"
+                )
+                tertiary_control_mode = gr.Dropdown(
+                    choices=["Auto", "Forced On", "Forced Off"],
+                    value="Auto",
+                    label="Tertiary Composition Features",
+                    info="Auto = enable only when coverage is meaningful; Forced On = always include; Forced Off = never include"
+                )
+                enable_model_trace = gr.Checkbox(
+                    value=False,
+                    label="Enable Model Trace Logging",
+                    info="Prints structured training and prediction traces to the server log"
                 )
                 
                 init_btn = gr.Button("🔧 Initialize Models", variant="secondary", size="lg")
@@ -2028,7 +2050,7 @@ def create_gradio_interface():
         # Connect initialization button
         init_btn.click(
             fn=initialize_models,
-            inputs=[api_key_input, latent_dim, epochs],
+            inputs=[api_key_input, latent_dim, epochs, tertiary_control_mode, enable_model_trace],
             outputs=[init_status, generate_btn]
         )
 

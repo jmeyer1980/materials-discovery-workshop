@@ -367,6 +367,41 @@ class MaterialsProjectClient:
             return {}
 
 
+def _extract_top_composition_fractions(row: pd.Series) -> Tuple[float, float, float]:
+    """Extract up to three normalized composition fractions from Materials Project data."""
+    formula_candidates = [row.get('formula'), row.get('formula_pretty'), row.get('composition')]
+
+    for formula in formula_candidates:
+        if not formula or pd.isna(formula):
+            continue
+        try:
+            composition = mg.Composition(str(formula))
+            component_amounts = sorted(
+                composition.get_el_amt_dict().values(),
+                reverse=True
+            )
+            if component_amounts:
+                total_amount = sum(component_amounts)
+                top_amounts = component_amounts[:3]
+                fractions = [amount / total_amount for amount in top_amounts]
+                while len(fractions) < 3:
+                    fractions.append(0.0)
+                return tuple(fractions[:3])
+        except Exception:
+            continue
+
+    elements = row.get('elements')
+    if isinstance(elements, list) and elements:
+        equal_fraction = 1.0 / len(elements)
+        fallback = [equal_fraction] * min(len(elements), 3)
+        while len(fallback) < 3:
+            fallback.append(0.0)
+        return tuple(fallback[:3])
+
+    return (0.0, 0.0, 0.0)
+
+
+
 def create_ml_features_from_mp_data(mp_data: pd.DataFrame) -> pd.DataFrame:
     """
     Convert Materials Project data to ML-ready features.
@@ -423,11 +458,10 @@ def create_ml_features_from_mp_data(mp_data: pd.DataFrame) -> pd.DataFrame:
             features_df.loc[idx, 'electronegativity_avg'] = 0
             features_df.loc[idx, 'atomic_radius_avg'] = 0
 
-    # Create composition features (simplified for binary alloys)
-    # For binary alloys, we can estimate compositions
-    features_df['composition_1'] = 0.5  # Default 50-50 for binary
-    features_df['composition_2'] = 0.5
-    features_df['composition_3'] = 0.0
+    # Create composition features from actual stoichiometry when available.
+    composition_fractions = features_df.apply(_extract_top_composition_fractions, axis=1, result_type='expand')
+    composition_fractions.columns = ['composition_1', 'composition_2', 'composition_3']
+    features_df[['composition_1', 'composition_2', 'composition_3']] = composition_fractions
 
     # Ensure nsites is present for downstream ML classifier compatibility
     if 'nsites' not in features_df.columns:
