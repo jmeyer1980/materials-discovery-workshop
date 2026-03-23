@@ -485,6 +485,15 @@ def create_ml_features_from_mp_data(mp_data: pd.DataFrame) -> pd.DataFrame:
 
     # Validate field consistency and standardize column names
     try:
+        # Early consistency check before coercion/standardization for observability
+        pre_validation_passed = validate_dataframe_consistency(
+            ml_features,
+            context="materials_discovery_api.create_ml_features_from_mp_data.pre_standardization",
+            required_fields=REQUIRED_FIELDS_ML_CLASSIFIER
+        )
+        if not pre_validation_passed:
+            print("Info: Pre-standardization validation identified inconsistencies; applying normalization pipeline.")
+
         # Clean numeric fields before standardization
         numeric_cols = [
             'composition_1', 'composition_2', 'composition_3',
@@ -513,6 +522,14 @@ def create_ml_features_from_mp_data(mp_data: pd.DataFrame) -> pd.DataFrame:
             required_fields=REQUIRED_FIELDS_ML_CLASSIFIER,
             context="materials_discovery_api.create_ml_features_from_mp_data"
         )
+
+        post_validation_passed = validate_dataframe_consistency(
+            ml_features,
+            context="materials_discovery_api.create_ml_features_from_mp_data.post_standardization",
+            required_fields=REQUIRED_FIELDS_ML_CLASSIFIER
+        )
+        if not post_validation_passed:
+            print("Warning: Post-standardization validation still reports inconsistencies.")
         
         print(f"Standardized ML features for {len(ml_features)} materials")
         

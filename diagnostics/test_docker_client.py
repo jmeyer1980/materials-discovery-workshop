@@ -25,7 +25,7 @@ try:
     )
     
     print("\n✓ Prediction completed")
-    print(f"\nResult summary:")
+    print("\nResult summary:")
     print(f"  Summary text length: {len(result[0]) if result[0] else 0}")
     print(f"  Materials table rows: {len(result[2]['data']) if result[2] and 'data' in result[2] else 0}")
     print(f"  Priority table rows: {len(result[3]['data']) if result[3] and 'data' in result[3] else 0}")

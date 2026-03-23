@@ -5,7 +5,6 @@ Tests the full end-to-end process from initialization to material generation and
 """
 
 import sys
-import os
 sys.path.append('/app')
 
 def test_complete_workflow():
@@ -19,8 +18,6 @@ def test_complete_workflow():
         from synthesizability_predictor import SynthesizabilityClassifier, create_synthetic_dataset_fallback, LLMSynthesizabilityPredictor
         from gradio_app import train_vae_model, generate_materials, run_synthesizability_analysis, calculate_synthesis_priority
         from sklearn.preprocessing import StandardScaler
-        import pandas as pd
-        import numpy as np
         
         print("✅ All imports successful")
         
@@ -65,7 +62,7 @@ def test_complete_workflow():
         # Step 6: Calculate synthesis priorities
         print("\n6️⃣ Calculating synthesis priorities...")
         priority_results = calculate_synthesis_priority(analysis_results)
-        print(f"   ✅ Priority calculation completed")
+        print("   ✅ Priority calculation completed")
         
         # Step 7: Verify results quality
         print("\n7️⃣ Verifying results quality...")
@@ -124,13 +121,13 @@ def test_complete_workflow():
         print("=" * 80)
         print("\n📋 Summary:")
         print(f"   • ML Classifier: ✅ Trained (Accuracy: {ml_metrics['accuracy']:.3f})")
-        print(f"   • VAE Model: ✅ Trained and generating materials")
+        print("   • VAE Model: ✅ Trained and generating materials")
         print(f"   • Material Generation: ✅ {len(generated_df)} materials created")
-        print(f"   • Synthesizability Analysis: ✅ Complete with ML + LLM predictions")
-        print(f"   • Priority Ranking: ✅ Multi-criteria optimization")
-        print(f"   • Cost-Benefit Analysis: ✅ Economic evaluation")
-        print(f"   • Composition Analysis: ✅ Weight percentages and feedstock calculations")
-        print(f"   • Field Validation: ✅ All required fields present")
+        print("   • Synthesizability Analysis: ✅ Complete with ML + LLM predictions")
+        print("   • Priority Ranking: ✅ Multi-criteria optimization")
+        print("   • Cost-Benefit Analysis: ✅ Economic evaluation")
+        print("   • Composition Analysis: ✅ Weight percentages and feedstock calculations")
+        print("   • Field Validation: ✅ All required fields present")
         print("\n🚀 Docker deployment is FULLY FUNCTIONAL!")
         print("   Ready for production use with the two-step process:")
         print("   1. Initialize Models (train classifiers and VAE)")

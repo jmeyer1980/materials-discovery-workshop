@@ -4,19 +4,11 @@ Test script to verify Docker deployment functionality
 """
 
 import sys
-import os
 sys.path.insert(0, '/app')
 
 def test_imports():
     """Test that all required modules can be imported"""
     try:
-        from synthesizability_predictor import SynthesizabilityClassifier, LLMSynthesizabilityPredictor
-        from centralized_field_mapping import apply_field_mapping_to_generation
-        from gradio_app import create_synthetic_dataset, generate_materials, train_vae_model
-        from sklearn.preprocessing import StandardScaler
-        import torch
-        import pandas as pd
-        import numpy as np
         
         print("✅ All imports successful")
         return True
@@ -68,6 +60,7 @@ def test_vae_training():
         
         # Train VAE
         vae_model = train_vae_model(features_scaled, latent_dim=5, epochs=10)
+        assert vae_model is not None, "VAE training returned None"
         
         print("✅ VAE training successful")
         return True
@@ -102,7 +95,7 @@ def test_material_generation():
             return False
         
         print(f"✅ Material generation successful: {len(generated_df)} materials generated")
-        print(f"✅ All required fields present in generated materials")
+        print("✅ All required fields present in generated materials")
         return True
         
     except Exception as e:

@@ -66,11 +66,6 @@ def summarize_tertiary_coverage(df: pd.DataFrame) -> Dict[str, float]:
     }
 
 # Import field mapping utilities
-from field_mapping_utils import (
-    validate_dataframe_consistency,
-    standardize_dataframe,
-    REQUIRED_FIELDS_ML_CLASSIFIER
-)
 
 # Try to import pymatgen for atomic weight calculations
 try:
@@ -1434,7 +1429,7 @@ class SynthesizabilityClassifier:
             print(f"Field mapping failed: {e}, using fallback field creation")
             if DOCKER_DEBUG:
                 import traceback
-                print(f"[DOCKER DEBUG] Field mapping exception traceback:")
+                print("[DOCKER DEBUG] Field mapping exception traceback:")
                 traceback.print_exc()
         
         # UNCONDITIONAL FALLBACK: Always ensure all required fields exist
@@ -1444,7 +1439,7 @@ class SynthesizabilityClassifier:
             required_fields.extend(['composition_1', 'composition_2', 'composition_3'])
         
         if DOCKER_DEBUG:
-            print(f"[DOCKER DEBUG] Checking for missing fields...")
+            print("[DOCKER DEBUG] Checking for missing fields...")
             
         default_feature_values = self.training_feature_medians or {
             'formation_energy_per_atom': -1.5,
@@ -1483,7 +1478,7 @@ class SynthesizabilityClassifier:
             raise ValueError(error_msg)
 
         if DOCKER_DEBUG:
-            print(f"[DOCKER DEBUG] All required fields verified. Proceeding with column selection.")
+            print("[DOCKER DEBUG] All required fields verified. Proceeding with column selection.")
 
         # Select only the required feature columns
         X_pred = X_pred[self.feature_columns].copy()

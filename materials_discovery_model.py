@@ -244,7 +244,7 @@ class MaterialsDiscoveryModel:
     """Main model for materials discovery."""
 
     def __init__(self, latent_dim: int = 32, learning_rate: float = 1e-3,
-                 batch_size: int = 64, epochs: int = 100):
+                 batch_size: int = 64, epochs: int = 100, seed: int = 42):
         """Initialize the materials discovery model.
 
         Args:
@@ -252,11 +252,13 @@ class MaterialsDiscoveryModel:
             learning_rate: Learning rate for optimization
             batch_size: Batch size for training
             epochs: Number of training epochs
+            seed: Random seed for reproducible training
         """
         self.latent_dim = latent_dim
         self.learning_rate = learning_rate
         self.batch_size = batch_size
         self.epochs = epochs
+        self.seed = seed
 
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         print(f"Using device: {self.device}")
@@ -265,6 +267,17 @@ class MaterialsDiscoveryModel:
         self.feature_engineer = FeatureEngineer()
         self.optimizer = None
         self.feature_columns = None
+        self.training_history = None
+
+        self._set_seed(self.seed)
+
+    def _set_seed(self, seed: int):
+        """Set random seeds for reproducibility."""
+        random.seed(seed)
+        np.random.seed(seed)
+        torch.manual_seed(seed)
+        if torch.cuda.is_available():
+            torch.cuda.manual_seed_all(seed)
 
     def _vae_loss(self, reconstructed, original, mu, log_var):
         """Compute VAE loss (reconstruction + KL divergence)."""
@@ -297,9 +310,19 @@ class MaterialsDiscoveryModel:
         data_scaled[self.feature_columns] = minmax_scaler.fit_transform(data_scaled[self.feature_columns])
         self.minmax_scaler = minmax_scaler
 
-        # Create dataset
-        dataset = MaterialsDataset(data_scaled, self.feature_columns)
-        dataloader = DataLoader(dataset, batch_size=self.batch_size, shuffle=True)
+        # Split data for training/validation
+        train_data, val_data = train_test_split(
+            data_scaled,
+            test_size=0.2,
+            random_state=self.seed,
+            shuffle=True
+        )
+
+        # Create datasets
+        train_dataset = MaterialsDataset(train_data, self.feature_columns)
+        val_dataset = MaterialsDataset(val_data, self.feature_columns)
+        train_dataloader = DataLoader(train_dataset, batch_size=self.batch_size, shuffle=True)
+        val_dataloader = DataLoader(val_dataset, batch_size=self.batch_size, shuffle=False)
 
         # Initialize model
         input_dim = len(self.feature_columns)
@@ -310,11 +333,14 @@ class MaterialsDiscoveryModel:
 
         # Training loop
         self.model.train()
-        losses = []
+        train_losses = []
+        val_losses = []
 
-        for epoch in range(self.epochs):
-            epoch_loss = 0
-            for batch_features, in dataloader:
+        epoch_iterator = tqdm(range(self.epochs), desc='Training epochs', unit='epoch')
+
+        for epoch in epoch_iterator:
+            epoch_train_loss = 0
+            for batch_features, in train_dataloader:
                 batch_features = batch_features.to(self.device)
 
                 # Forward pass
@@ -328,26 +354,54 @@ class MaterialsDiscoveryModel:
                 loss.backward()
                 self.optimizer.step()
 
-                epoch_loss += loss.item()
+                epoch_train_loss += loss.item()
 
-            avg_loss = epoch_loss / len(dataloader)
-            losses.append(avg_loss)
+            avg_train_loss = epoch_train_loss / len(train_dataloader)
+            train_losses.append(avg_train_loss)
+
+            # Validation
+            self.model.eval()
+            epoch_val_loss = 0
+            with torch.no_grad():
+                for val_batch_features, in val_dataloader:
+                    val_batch_features = val_batch_features.to(self.device)
+                    val_reconstructed, val_mu, val_log_var = self.model(val_batch_features)
+                    val_loss = self._vae_loss(val_reconstructed, val_batch_features, val_mu, val_log_var)
+                    epoch_val_loss += val_loss.item()
+
+            avg_val_loss = epoch_val_loss / len(val_dataloader)
+            val_losses.append(avg_val_loss)
+
+            self.model.train()
+
+            epoch_iterator.set_postfix(train_loss=f'{avg_train_loss:.2f}', val_loss=f'{avg_val_loss:.2f}')
 
             if (epoch + 1) % 10 == 0:
-                print(f"Epoch {epoch+1}/{self.epochs}, Loss: {avg_loss:.4f}")
+                print(
+                    f"Epoch {epoch+1}/{self.epochs}, "
+                    f"Train Loss: {avg_train_loss:.4f}, Val Loss: {avg_val_loss:.4f}"
+                )
 
         print("Training completed!")
 
+        self.training_history = pd.DataFrame({
+            'epoch': list(range(1, self.epochs + 1)),
+            'train_loss': train_losses,
+            'val_loss': val_losses
+        })
+
         # Plot training loss
         plt.figure(figsize=(10, 6))
-        plt.plot(losses)
+        plot_df = self.training_history.melt(id_vars='epoch', var_name='split', value_name='loss')
+        sns.lineplot(data=plot_df, x='epoch', y='loss', hue='split')
         plt.xlabel('Epoch')
         plt.ylabel('Loss')
-        plt.title('VAE Training Loss')
+        plt.title('VAE Training and Validation Loss')
+        plt.legend(title='Split')
         plt.savefig('training_loss.png', dpi=300, bbox_inches='tight')
         plt.close()
 
-        return losses
+        return train_losses
 
     def generate_new_materials(self, num_samples: int = 100,
                               target_properties: Optional[Dict[str, Tuple[float, float]]] = None) -> pd.DataFrame:
@@ -558,6 +612,12 @@ def main():
 
     # Train on dataset
     losses = model.train('materials_dataset.csv')
+    if losses:
+        print(
+            f"Training summary -> epochs: {len(losses)}, "
+            f"best_train_loss: {min(losses):.4f}, "
+            f"final_train_loss: {losses[-1]:.4f}"
+        )
 
     # Generate new materials
     print("\nGenerating new materials...")

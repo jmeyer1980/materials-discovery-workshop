@@ -4,7 +4,6 @@ Test ML prediction with field-mapped data
 """
 
 import pandas as pd
-import numpy as np
 import sys
 import os
 
@@ -63,7 +62,7 @@ def test_ml_prediction_with_field_mapping():
         
         # Train the classifier
         ml_metrics = ml_classifier.train(api_key=None)  # Will use synthetic data
-        print(f"ML classifier trained successfully!")
+        print("ML classifier trained successfully!")
         print(f"Training metrics: {ml_metrics}")
         
         # Test prediction on our test data
@@ -77,11 +76,11 @@ def test_ml_prediction_with_field_mapping():
         
         # Check if prediction succeeded
         if 'synthesizability_probability' in results.columns:
-            print(f"\n✅ ML prediction successful!")
+            print("\n✅ ML prediction successful!")
             print(f"Predicted probabilities: {results['synthesizability_probability'].tolist()}")
             return True
         else:
-            print(f"\n❌ ML prediction failed - missing required columns")
+            print("\n❌ ML prediction failed - missing required columns")
             return False
         
     except Exception as e:
@@ -133,7 +132,7 @@ def test_full_generation_flow():
             print(f"❌ Field mapping failed - missing fields: {missing_fields}")
             return False
         else:
-            print(f"✅ Field mapping successful - all required fields present")
+            print("✅ Field mapping successful - all required fields present")
             return True
         
     except Exception as e:

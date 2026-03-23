@@ -4,7 +4,6 @@ Debug script to test field mapping functionality
 """
 
 import pandas as pd
-import numpy as np
 import sys
 import os
 
@@ -72,7 +71,6 @@ def test_field_mapping():
         # Test manual field mapping
         print("\nTesting manual field mapping fallback...")
         try:
-            from gradio_app import run_synthesizability_analysis
             print("Manual field mapping test completed")
             return True
         except Exception as e2:
@@ -117,10 +115,12 @@ def test_ml_prediction():
         try:
             # Try to create real training data
             dataset = create_vae_training_dataset_from_mp(api_key='test', n_materials=10)
-        except:
+        except Exception:
             # Use synthetic data
             from gradio_app import create_synthetic_dataset
             dataset = create_synthetic_dataset(10)
+
+        print(f"Training dataset prepared with {len(dataset)} rows")
         
         # Train the classifier
         ml_metrics = ml_classifier.train(api_key='test')

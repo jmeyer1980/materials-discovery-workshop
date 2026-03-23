@@ -27,7 +27,7 @@ LICENSE: MIT (see LICENSE file in repository)
 
 import numpy as np
 import pandas as pd
-from pymatgen.core import Composition, Element
+from pymatgen.core import Element
 from typing import List, Dict, Tuple
 import random
 
@@ -73,7 +73,7 @@ class MaterialsDatasetGenerator:
                     'boiling_point': elem.boiling_point if elem.boiling_point else 0.0,
                     'density': elem.density_of_solid if elem.density_of_solid else 0.0,
                 }
-            except:
+            except Exception:
                 # Fallback values for elements with missing data
                 properties[elem_symbol] = {
                     'atomic_number': 0,
@@ -189,6 +189,7 @@ class MaterialsDatasetGenerator:
 
         for elem, frac in composition:
             props = self.element_properties[elem]
+            total_mass += frac
 
             # Calculate weighted properties
             weighted_mp += props['melting_point'] * frac
@@ -196,6 +197,13 @@ class MaterialsDatasetGenerator:
             weighted_density += props['density'] * frac
             avg_electronegativity += props['electronegativity'] * frac
             avg_atomic_radius += props['atomic_radius'] * frac
+
+        if total_mass > 0:
+            weighted_mp /= total_mass
+            weighted_bp /= total_mass
+            weighted_density /= total_mass
+            avg_electronegativity /= total_mass
+            avg_atomic_radius /= total_mass
 
         # Calculate electronegativity difference (for binary alloys)
         if len(composition) == 2:
@@ -258,7 +266,7 @@ def main():
     print(dataset.head())
 
     # Basic statistics
-    print(f"\nDataset statistics:")
+    print("\nDataset statistics:")
     print(f"Binary alloys: {len(dataset[dataset['alloy_type'] == 'binary'])}")
     print(f"Ternary alloys: {len(dataset[dataset['alloy_type'] == 'ternary'])}")
     print(f"Melting point range: {dataset['melting_point'].min():.1f} - {dataset['melting_point'].max():.1f} K")

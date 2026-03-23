@@ -11,7 +11,6 @@ Tests the entire materials discovery system including:
 import sys
 import os
 import pandas as pd
-import numpy as np
 
 # Add the current directory to Python path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))

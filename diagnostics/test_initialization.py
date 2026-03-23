@@ -4,14 +4,12 @@ Test script for Docker initialization process
 """
 
 import sys
-import os
 sys.path.append('/app')
 
 # Import required modules
 from synthesizability_predictor import SynthesizabilityClassifier, create_synthetic_dataset_fallback
 from gradio_app import train_vae_model
 from sklearn.preprocessing import StandardScaler
-import pandas as pd
 import numpy as np
 
 def ensure_fields_exist(df, required_fields):

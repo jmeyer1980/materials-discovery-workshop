@@ -10,7 +10,7 @@ field validation and mapping.
 
 import pandas as pd
 import numpy as np
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional
 
 
 class FieldMapper:

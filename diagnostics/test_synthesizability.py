@@ -19,23 +19,22 @@ import pytest
 import pandas as pd
 import numpy as np
 import os
-import tempfile
 import warnings
-warnings.filterwarnings('ignore')
 
 # Import core modules
 from synthesizability_predictor import (
     SynthesizabilityClassifier, LLMSynthesizabilityPredictor,
-    create_training_dataset_from_mp, create_vae_training_dataset_from_mp,
     add_composition_analysis_to_dataframe
 )
 from materials_discovery_api import (
-    MaterialsProjectClient, get_training_dataset, create_ml_features_from_mp_data,
+    MaterialsProjectClient, create_ml_features_from_mp_data,
     validate_data_with_schema
 )
-from gradio_app import OptimizedVAE, train_vae_model, generate_materials
+from gradio_app import train_vae_model
 from export_for_lab import export_for_lab
 import yaml
+
+warnings.filterwarnings('ignore')
 
 # Load feature schema
 try:
@@ -236,10 +235,12 @@ class TestMaterialsDiscoverySystem:
         # Simulate equipment filtering logic
         available_equipment = ['Arc Melter', 'Furnace']
         required_equipment = ['Arc Melter']  # Simulated requirement
+        supported_equipment = set(available_equipment).intersection(required_equipment)
 
         # Test filtering logic (placeholder)
         filtered_data = test_data.copy()  # In real implementation, this would filter based on equipment
 
+        assert supported_equipment, "No required equipment available for filtering"
         assert not filtered_data.empty, "Equipment filtering removed all data"
         assert len(filtered_data) <= len(test_data), "Equipment filtering added data"
 
@@ -248,6 +249,7 @@ class TestMaterialsDiscoverySystem:
         # Train classifier to establish "distribution"
         classifier = SynthesizabilityClassifier()
         metrics = classifier.train()
+        assert metrics is not None, "Classifier training did not return metrics"
 
         if classifier.is_trained:
             # Test with in-distribution materials
@@ -305,6 +307,7 @@ class TestMaterialsDiscoverySystem:
         # Train ML classifier
         classifier = SynthesizabilityClassifier()
         metrics = classifier.train()
+        assert metrics is not None, "Classifier metrics unavailable for ensemble test"
 
         llm_predictor = LLMSynthesizabilityPredictor()
 

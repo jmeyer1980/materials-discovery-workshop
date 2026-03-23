@@ -15,18 +15,17 @@ import pandas as pd
 import numpy as np
 import os
 import tempfile
-from typing import Dict, List, Tuple
 import warnings
-warnings.filterwarnings('ignore')
 
 # Import pipeline components
 from synthesizability_predictor import (
     SynthesizabilityClassifier, LLMSynthesizabilityPredictor,
     create_training_dataset_from_mp, create_vae_training_dataset_from_mp
 )
-from gradio_app import OptimizedVAE, train_vae_model, generate_materials
-from export_for_lab import export_for_lab
+from gradio_app import train_vae_model, generate_materials
 from materials_discovery_api import MaterialsProjectClient
+
+warnings.filterwarnings('ignore')
 
 
 def test_synthetic_data_preparation():
@@ -516,11 +515,12 @@ def run_complete_mp_validation():
     vae_result = test_vae_training_on_mp_data(ml_features)
     if vae_result[0] is not None:
         generated_materials, vae_model, scaler = vae_result
+        print(f"Generated candidate count from VAE: {len(generated_materials)}")
         success_count += 1
         print("✅ PASSED")
     else:
         print("❌ FAILED")
-        generated_materials = None
+        generated_materials = pd.DataFrame()
 
     # Test 4: End-to-End Pipeline
     print(f"\nTest 4/{total_tests}: End-to-End Pipeline")

@@ -5,7 +5,6 @@ This tests all the fixes we implemented for the field mapping and ML prediction 
 """
 
 import pandas as pd
-import numpy as np
 import sys
 import os
 
@@ -48,7 +47,7 @@ def test_field_mapping():
             print(f"  ❌ Missing fields after mapping: {missing_fields}")
             return False
         else:
-            print(f"  ✅ All required fields present after mapping")
+            print("  ✅ All required fields present after mapping")
             return True
             
     except Exception as e:
@@ -95,11 +94,11 @@ def test_ml_prediction():
         
         # Check that predictions were made
         if 'synthesizability_prediction' in result_df.columns:
-            print(f"  ✅ ML prediction successful")
+            print("  ✅ ML prediction successful")
             print(f"  Predictions: {list(result_df['synthesizability_prediction'])}")
             return True
         else:
-            print(f"  ❌ ML prediction failed - no prediction column")
+            print("  ❌ ML prediction failed - no prediction column")
             return False
             
     except Exception as e:
@@ -145,7 +144,7 @@ def test_synthesizability_analysis():
         result = run_synthesizability_analysis(test_df, ml_classifier, llm_predictor)
         
         if result is not None:
-            print(f"  ✅ Synthesizability analysis completed")
+            print("  ✅ Synthesizability analysis completed")
             print(f"  Generated {len(result)} materials")
             
             # Check for key columns
@@ -156,10 +155,10 @@ def test_synthesizability_analysis():
                 print(f"  ⚠️  Missing expected columns: {missing_columns}")
                 return False
             else:
-                print(f"  ✅ All expected columns present")
+                print("  ✅ All expected columns present")
                 return True
         else:
-            print(f"  ❌ Synthesizability analysis returned None")
+            print("  ❌ Synthesizability analysis returned None")
             return False
             
     except Exception as e:
@@ -189,11 +188,11 @@ def test_api_authentication():
         # Check that the validation result has the expected structure
         expected_keys = ['valid', 'error', 'message', 'suggestions']
         if all(key in validation_result for key in expected_keys):
-            print(f"  ✅ API authentication handler structure is correct")
+            print("  ✅ API authentication handler structure is correct")
             print(f"  Validation result: {validation_result['message']}")
             return True
         else:
-            print(f"  ❌ API authentication handler missing expected keys")
+            print("  ❌ API authentication handler missing expected keys")
             print(f"  Expected: {expected_keys}")
             print(f"  Got: {list(validation_result.keys())}")
             return False

@@ -59,7 +59,7 @@ def log_dataframe_state(df: pd.DataFrame, stage: str) -> None:
     logger.info(f"=== {stage} ===")
     logger.info(f"Columns: {list(df.columns)}")
     logger.info(f"Shape: {df.shape}")
-    logger.info(f"Required fields status:")
+    logger.info("Required fields status:")
     for field in REQUIRED_FIELDS:
         if field in df.columns:
             try:
@@ -139,6 +139,11 @@ def ensure_required_fields(df: pd.DataFrame) -> pd.DataFrame:
             # Convert to numeric, coerce errors to NaN, then fill with reasonable defaults
             original_values = df_copy[field].copy()
             df_copy[field] = pd.to_numeric(df_copy[field], errors='coerce')
+            invalid_entries = original_values.notna().sum() - df_copy[field].notna().sum()
+            if invalid_entries > 0:
+                logger.warning(
+                    f"Field '{field}' had {int(invalid_entries)} non-numeric values coerced to NaN"
+                )
             
             # Fill NaN values with reasonable defaults based on field type
             if field in ['formation_energy_per_atom', 'energy_above_hull']:

@@ -6,7 +6,6 @@ This file serves as the WSGI application entry point for the Materials Discovery
 
 import os
 import sys
-import gradio as gr
 from gradio_app import create_gradio_interface
 
 def create_app():

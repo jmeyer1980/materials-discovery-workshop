@@ -8,7 +8,6 @@ including validation, fallback mechanisms, and clear error messages.
 
 import os
 import requests
-import json
 import logging
 from typing import Optional, Dict, Any
 from datetime import datetime
@@ -219,7 +218,7 @@ class APIAuthenticationHandler:
                 for i, suggestion in enumerate(status['validation_details']['suggestions'], 1):
                     message += f"\n{i}. {suggestion}"
             
-            message += f"""
+            message += """
             
             **Using Synthetic Data:**
             The application will continue using synthetic data for materials discovery.
