@@ -247,7 +247,7 @@ new_weights = classifier.reweight_ensemble()
 
 - **Primary Contact**: Materials Discovery Research Team
 - **Email**: <materials.discovery@research.edu>
-- **GitHub**: <https://github.com/materials-discovery/synthesizability-predictor>
+- **GitHub**: <https://github.com/jmeyer1980/materials-discovery-workshop>
 
 ### Reporting Issues
 
@@ -268,12 +268,20 @@ If you use this model in your research, please cite:
 ```meta
 @software{materials_synthesizability_predictor,
   title = {Materials Synthesizability Predictor},
-  author = {Materials Discovery Research Team},
+  author = {jmeyer1980},
   year = {2026},
   version = {1.0.0},
-  url = {https://github.com/materials-discovery/synthesizability-predictor}
+  url = {https://github.com/jmeyer1980/materials-discovery-workshop}
 }
 ```
+
+### Attribution Policy
+
+- Attribution is provided for implementation-level similarity when code is copied or closely modeled from upstream sources.
+- Canonical repository citation metadata is maintained in `CITATIONS.cff`.
+- Pattern-level code attribution notes are maintained in `Documents/Code_Citations.md`.
+- Upstream license terms are verified at source repositories before redistribution decisions.
+- If attribution scope is uncertain, the project defaults to explicit attribution.
 
 ### Acknowledgments
 

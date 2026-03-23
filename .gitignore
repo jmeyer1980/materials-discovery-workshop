@@ -125,10 +125,14 @@ venv.bak/
 .dmypy.json
 dmypy.json
 
+# ruff
+.ruff*/
+
 # Pyre type checker
 .pyre/
 
 # IDE
+.benchmarks/
 .vscode/
 .idea/
 *.swp
@@ -153,13 +157,7 @@ generated_materials_*.csv
 *.png
 training_loss.png
 materials_discovery_*.png
-Development_guides/Outreach/action_plan.md
-Development_guides/Outreach/crucible_ready_alloys_20260127_150633.csv
-Development_guides/Outreach/email_templates.md
-Development_guides/Outreach/I am having a hard time organizing my thoughts rig.md
-Development_guides/Outreach/model_report_20260127_150633.pdf
-Development_guides/Outreach/rsd_protocol.md
-Development_guides/Outreach/tmpt83z4gob.csv
+Development_guides/Outreach/
 .history/
 TheStoryTest/
 Packages/

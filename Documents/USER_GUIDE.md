@@ -389,7 +389,7 @@ conda install -c conda-forge pymatgen
 
 ### Getting Help
 
-- **Documentation**: See MODEL_CARD.md for technical details
+- **Documentation**: See Documents/MODEL_CARD.md for technical details
 - **Issues**: Report bugs on GitHub Issues
 - **Discussions**: Use GitHub Discussions for questions
 

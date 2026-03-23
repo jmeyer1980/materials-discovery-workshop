@@ -296,10 +296,13 @@ Create `CITATIONS.cff`:
 
 ```yaml
 cff-version: 1.2.0
+title: Materials Discovery Machine Learning System
 message: "If you use this software, please cite as below."
+type: software
 authors:
-  - family-names: "[Your Name]"
-    given-names: "[Your First Name]"
+  - name: "jmeyer1980"  # Replace with your preferred citation name if needed
+repository-code: "https://github.com/jmeyer1980/materials-discovery-workshop"
+url: "https://github.com/jmeyer1980/materials-discovery-workshop"
 references:
   - type: software
     authors:

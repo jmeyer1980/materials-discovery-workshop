@@ -106,7 +106,7 @@ Our model achieves **perfect classification** on training data with excellent ca
 
 ### 📋 Model Card
 
-Complete technical documentation: [MODEL_CARD.md](MODEL_CARD.md)
+Complete technical documentation: [Documents/MODEL_CARD.md](Documents/MODEL_CARD.md)
 
 - Model architecture and training details
 - Performance metrics and limitations
@@ -114,7 +114,7 @@ Complete technical documentation: [MODEL_CARD.md](MODEL_CARD.md)
 
 ### 📖 User Guide
 
-Practical usage instructions: [USER_GUIDE.md](USER_GUIDE.md)
+Practical usage instructions: [Documents/USER_GUIDE.md](Documents/USER_GUIDE.md)
 
 - Installation and setup
 - Basic and advanced usage examples
@@ -171,11 +171,20 @@ python gradio_app.py
 - `test_mp_end_to_end.py` - Complete pipeline validation
 - `test_synthesizability.py` - Unit tests for prediction logic
 
-### - Documentation
+### Documentation
 
-- `MODEL_CARD.md` - Technical model documentation
-- `USER_GUIDE.md` - User instructions and examples
+- `Documents/MODEL_CARD.md` - Technical model documentation
+- `Documents/USER_GUIDE.md` - User instructions and examples
+- `Documents/Code_Citations.md` - Pattern-level attribution records
+- `Documents/attribution_templates_ready_to_use.md` - Attribution templates
 - `README.md` - Project overview (this file)
+
+### Development Guides
+
+- `Development_guides/development/COMPREHENSIVE_FIX_PLAN.md` - Development planning artifact
+- `Development_guides/development/FIELD_MAPPING_SOLUTION_SUMMARY.md` - Development summary artifact
+- `Development_guides/development/demonstration_strategy.md` - Development strategy artifact
+- `Development_guides/` - Ongoing development roadmap and supporting guides
 
 ### Data & Configuration
 
@@ -230,6 +239,22 @@ This work opens new possibilities for AI-assisted materials discovery:
 5. **Synthesis Planning**: Predict not just feasibility, but optimal synthesis routes
 
 ## Citations & References
+
+### Repository Citation & Attribution Files
+
+- **Machine-readable software citation metadata**: [CITATIONS.cff](CITATIONS.cff)
+- **Pattern-level code attribution record**: [Documents/Code_Citations.md](Documents/Code_Citations.md)
+- **Attribution implementation templates**: [Documents/attribution_templates_ready_to_use.md](Documents/attribution_templates_ready_to_use.md)
+
+Use `CITATIONS.cff` as the canonical source for repository citation fields (title, repository URL, author entry format, release metadata).
+
+### Attribution Policy
+
+- We attribute implementation-level similarity when code is copied or closely modeled from upstream examples.
+- Repository-level citation metadata is maintained in `CITATIONS.cff` and should be treated as canonical.
+- Pattern-level or localized code attribution notes are maintained in `Documents/Code_Citations.md`.
+- Upstream license obligations are validated at source repositories before redistribution decisions.
+- When uncertain, we prefer explicit attribution over omission.
 
 ### Core Methodology
 

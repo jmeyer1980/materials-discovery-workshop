@@ -114,6 +114,8 @@ SOFTWARE.
 
 **Create file: `CITATIONS.cff`**
 
+> Keep this template synchronized with the canonical metadata in the repository root `CITATIONS.cff`.
+
 ```yaml
 # This CITATION.cff file was generated with cffinit.
 # Visit https://bit.ly/cffinit to generate yours today!
@@ -124,12 +126,9 @@ message: >-
   If you use this software, please cite it using the metadata from this file.
 type: software
 authors:
-  - given-names: "[Your First Name]"
-    family-names: "[Your Last Name]"
-    affiliation: "[Your Organization]"
-    orcid: "https://orcid.org/[your-orcid]"  # Optional
-repository-code: "https://github.com/[your-username]/materials-discovery-ml"
-url: "https://github.com/[your-username]/materials-discovery-ml"
+  - name: "jmeyer1980"  # Replace with your preferred citation name if needed
+repository-code: "https://github.com/jmeyer1980/materials-discovery-workshop"
+url: "https://github.com/jmeyer1980/materials-discovery-workshop"
 abstract: >-
   A machine learning system for discovering new materials and alloys by learning 
   patterns from existing compositions using Variational Autoencoders (VAE).
