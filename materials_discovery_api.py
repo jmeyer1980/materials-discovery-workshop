@@ -55,7 +55,7 @@ def validate_data_with_schema(df: pd.DataFrame, schema_path: str) -> pd.DataFram
             # Fill missing values with the mean
             if df_validated[col_name].isnull().any():
                 mean_val = df_validated[col_name].mean()
-                df_validated[col_name].fillna(mean_val, inplace=True)
+                df_validated[col_name] = df_validated[col_name].fillna(mean_val)
                 print(f"Info: Filled missing values in '{col_name}' with mean ({mean_val:.2f}).")
 
             # Clip values to range
