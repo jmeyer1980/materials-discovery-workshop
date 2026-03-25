@@ -1,0 +1,3 @@
+ID,Formula,Comp (at%),Comp (wt%),Feedstock(g/100g),Stability,E_hull,SynthProb,MLConf,Method,Temp°C,Atm,SuccessProb,EstCost,EstTime(h),Priority,InDist,NNDistance,Notes
+generated_29,Fe0.696Cu0.304,Fe: 69.6%; Cu: 30.4%,Fe: 66.8%; Cu: 33.2%,"66.8g Fe, 33.2g Cu",highly_stable,0.0019,0.9999,0.9998,Solid State Reaction,600-1400 °C (typ. 1000 °C),Air/Ar,0.8909551804550634,50.0,34.0,N/A,in-dist,1.3023,Highly stable - good candidate; Well-calibrated prediction
+generated_249,V0.499Zn0.501,V: 49.9%; Zn: 50.1%,V: 43.7%; Zn: 56.3%,"43.7g V, 56.3g Zn",highly_stable,0.0001,0.9999,0.9998,Solid State Reaction,600-1400 °C (typ. 1000 °C),Air/Ar,0.8909551804550634,50.0,34.0,N/A,in-dist,1.3778,Highly stable - good candidate; Well-calibrated prediction

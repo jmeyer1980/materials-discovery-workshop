@@ -1806,6 +1806,10 @@ def recommend_synthesis_method(material_data: Dict, available_equipment: List[st
     Returns:
         Dict with recommended method details and reasoning
     """
+    # Default to all equipment available if not specified
+    if available_equipment is None:
+        available_equipment = []
+    
     stability_score = calculate_thermodynamic_stability_score(material_data)['thermodynamic_stability_score']
     synthesizability = material_data.get('ensemble_probability', 0.5)  # Use synthesizability score
     band_gap = material_data.get('band_gap', 1.0)
@@ -1818,8 +1822,12 @@ def recommend_synthesis_method(material_data: Dict, available_equipment: List[st
         score = 0.0
         reasons = []
 
-        # Check equipment availability
-        has_required_equipment = all(eq in available_equipment for eq in method_info['equipment_needed'])
+        # Check equipment availability - if available_equipment is empty, assume all equipment is available
+        if available_equipment:
+            has_required_equipment = all(eq in available_equipment for eq in method_info['equipment_needed'])
+        else:
+            has_required_equipment = True
+            
         if not has_required_equipment:
             method_scores[method_key] = {'score': -1, 'reason': 'Required equipment not available'}
             continue

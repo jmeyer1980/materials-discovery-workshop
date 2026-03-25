@@ -65,11 +65,19 @@ Fully containerized solution for easy deployment across different systems.
 docker-compose up --build
 
 # Or with Docker directly
-docker build -t materials-discovery .
-docker run -p 8501:8501 materials-discovery
+docker build -t materials-discovery-app .
+docker run -p 8080:8080 materials-discovery-app
 ```
 
-Open <http://localhost:8501> in your browser.
+Open <http://localhost:8080> in your browser.
+
+**Build-time expectations:**
+
+- The first Docker build typically takes 5 to 8 minutes on a normal laptop or desktop using Docker Desktop.
+- This is expected: the Python dependency install is the slowest step, and the final image export/unpack can also take several minutes.
+- A recent local build completed in about 7.5 minutes total, with about 200 seconds in `pip install` and about 250 seconds exporting the final image.
+- Subsequent builds are usually much faster when `requirements.txt` is unchanged because Docker can reuse cached layers.
+- If users change Python dependencies or build with `--no-cache`, they should expect first-build timing again.
 
 **Benefits:**
 

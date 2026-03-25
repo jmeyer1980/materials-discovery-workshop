@@ -8,6 +8,7 @@ full model context and limitations.
 """
 
 import pandas as pd
+import numpy as np
 import matplotlib.pyplot as plt
 from datetime import datetime
 import os
@@ -214,7 +215,7 @@ def prepare_lab_ready_csv(predictions_df: pd.DataFrame,
 
     # Generate timestamp for filename
     timestamp = format_timestamp()
-    csv_filename = f"crucible_ready_alloys_{timestamp}.csv"
+    csv_filename = f"safe_ish_lab_export_{timestamp}.csv"
     csv_path = os.path.join(output_dir, csv_filename)
 
     # Ensure output directory exists
@@ -267,32 +268,63 @@ def prepare_lab_ready_csv(predictions_df: pd.DataFrame,
     else:
         csv_df['MLConf'] = pd.Series([float(ml_conf_val) if ml_conf_val != 0 else 0.0] * len(csv_df)).round(4)
 
+    def _format_export_value(value):
+        if isinstance(value, dict):
+            minimum = value.get('min')
+            maximum = value.get('max')
+            typical = value.get('typical')
+            unit = value.get('unit', 'C')
+            if minimum is not None and maximum is not None and typical is not None:
+                return f"{minimum}-{maximum} {unit} (typ. {typical} {unit})"
+            if minimum is not None and maximum is not None:
+                return f"{minimum}-{maximum} {unit}"
+            if typical is not None:
+                return f"{typical} {unit}"
+        if isinstance(value, (list, tuple)):
+            return ', '.join(str(item) for item in value)
+        if value is None:
+            return 'Unknown'
+        return value if isinstance(value, (str, int, float, bool)) else str(value)
+
     # Recommended synthesis method, temperature, atmosphere
     csv_df['Method'] = 'Unknown'
     csv_df['Temp°C'] = 'Unknown'
     csv_df['Atm'] = 'Unknown'
 
     # Success probability, estimated cost, time
-    csv_df['SuccessProb'] = 0.0
+    # Default SuccessProb to model SynthProb so exports remain internally consistent
+    # even when method-specific CBA is unavailable.
+    csv_df['SuccessProb'] = csv_df['SynthProb']
     csv_df['EstCost'] = 0.0
     csv_df['EstTime(h)'] = 0.0
 
     # Add synthesis method recommendations
     for idx, row in csv_df.iterrows():
         try:
+            # Convert row to dict and ensure all values are Python scalars (not pandas types)
+            row_dict = row.to_dict()
+            # Convert any pandas types to native Python scalars
+            for key, value in row_dict.items():
+                if pd.api.types.is_scalar(value) and not isinstance(value, (int, float, str, bool, type(None))):
+                    # Convert pandas scalar types to native Python
+                    try:
+                        row_dict[key] = float(value) if isinstance(value, (np.integer, np.floating)) else value
+                    except (ValueError, TypeError):
+                        pass
+            
             # Get cost-benefit analysis for this material
-            cba_result = cost_benefit_analysis(row.to_dict())
+            cba_result = cost_benefit_analysis(row_dict)
 
             if cba_result and 'recommended_method' in cba_result:
-                csv_df.at[idx, 'Method'] = cba_result['recommended_method']
-                csv_df.at[idx, 'SuccessProb'] = cba_result.get('success_probability', 0)
+                csv_df.at[idx, 'Method'] = _format_export_value(cba_result['recommended_method'])
+                csv_df.at[idx, 'SuccessProb'] = float(cba_result.get('success_probability', 0) or 0)
 
                 # Get method details
                 synthesis_details = cba_result.get('synthesis_details', {})
-                csv_df.at[idx, 'Temp°C'] = synthesis_details.get('temperature_range', 'Unknown')
-                csv_df.at[idx, 'Atm'] = synthesis_details.get('atmosphere', 'Unknown')
-                csv_df.at[idx, 'EstCost'] = synthesis_details.get('estimated_cost_usd', 0)
-                csv_df.at[idx, 'EstTime(h)'] = synthesis_details.get('total_time_hours', 0)
+                csv_df.at[idx, 'Temp°C'] = _format_export_value(synthesis_details.get('temperature_range', 'Unknown'))
+                csv_df.at[idx, 'Atm'] = _format_export_value(synthesis_details.get('atmosphere', 'Unknown'))
+                csv_df.at[idx, 'EstCost'] = float(synthesis_details.get('estimated_cost_usd', 0) or 0)
+                csv_df.at[idx, 'EstTime(h)'] = float(synthesis_details.get('total_time_hours', 0) or 0)
 
         except Exception as e:
             print(f"Warning: Could not get synthesis details for material {idx}: {e}")
@@ -301,14 +333,16 @@ def prepare_lab_ready_csv(predictions_df: pd.DataFrame,
     csv_df['Priority'] = csv_df.get('synthesis_priority_rank', 'N/A')
 
     # In-distribution status and nearest neighbor distance
-    csv_df['InDist'] = csv_df.get('in_distribution', 'unknown')
+    csv_df['InDist'] = csv_df.get('in_distribution', 'N/A')
 
     # Handle NN distance properly - ensure we get a pandas Series, not an integer
     nn_distance_col = csv_df.get('nn_distance')
     if nn_distance_col is not None:
-        csv_df['NNDistance'] = pd.to_numeric(nn_distance_col, errors='coerce').fillna(0).round(4)
+        nn_numeric = pd.to_numeric(nn_distance_col, errors='coerce')
+        csv_df['NNDistance'] = nn_numeric.round(4).astype(object)
+        csv_df.loc[nn_numeric.isna(), 'NNDistance'] = 'N/A'
     else:
-        csv_df['NNDistance'] = 0.0
+        csv_df['NNDistance'] = 'N/A'
 
     # Notes column with additional information
     def create_notes(row):
@@ -379,7 +413,7 @@ def generate_pdf_report(predictions_df: pd.DataFrame,
         Path to the generated PDF file
     """
     timestamp = format_timestamp()
-    pdf_filename = f"model_report_{timestamp}.pdf"
+    pdf_filename = f"safe_ish_lab_report_{timestamp}.pdf"
     pdf_path = os.path.join(output_dir, pdf_filename)
 
     # Ensure output directory exists
@@ -476,15 +510,18 @@ def generate_pdf_reportlab(predictions_df: pd.DataFrame,
     # Performance Metrics
     content.append(Paragraph("3. Performance Metrics", heading_style))
 
-    # Create metrics table
+    # Create metrics table with actual values or N/A if unavailable
+    if ml_metrics is None:
+        ml_metrics = {}
+    
     metrics_data = [
         ['Metric', 'Value'],
-        ['Accuracy', '.4f'],
-        ['Precision', '.4f'],
-        ['Recall', '.4f'],
-        ['F1-Score', '.4f'],
-        ['Cross-Validation Mean', '.4f'],
-        ['Cross-Validation Std', '.4f']
+        ['Accuracy', f"{ml_metrics.get('accuracy', 0):.4f}"],
+        ['Precision', f"{ml_metrics.get('precision', 0):.4f}"],
+        ['Recall', f"{ml_metrics.get('recall', 0):.4f}"],
+        ['F1-Score', f"{ml_metrics.get('f1_score', 0):.4f}"],
+        ['Cross-Validation Mean', f"{ml_metrics.get('cv_mean', 0):.4f}"],
+        ['Cross-Validation Std', f"{ml_metrics.get('cv_std', 0):.4f}"]
     ]
 
     metrics_table = Table(metrics_data)
@@ -560,16 +597,52 @@ def generate_pdf_reportlab(predictions_df: pd.DataFrame,
     content.append(Paragraph("6. Generated Dataset Summary", heading_style))
 
     n_materials = len(predictions_df)
-    synthesizable = (predictions_df.get('ensemble_prediction', pd.Series([0]*len(predictions_df))) == 1).sum()
-    high_confidence = (predictions_df.get('ensemble_confidence', pd.Series([0]*len(predictions_df))) > 0.8).sum()
-    in_distribution = (predictions_df.get('in_distribution', pd.Series(['unknown']*len(predictions_df))) == 'in-dist').sum()
+
+    # Predicted synthesizable count with fallbacks
+    ensemble_pred_col = predictions_df.get('ensemble_prediction')
+    if ensemble_pred_col is not None:
+        pred_numeric = pd.to_numeric(ensemble_pred_col, errors='coerce')
+        synthesizable = int((pred_numeric >= 0.5).sum())
+    elif predictions_df.get('synthesizability_prediction') is not None:
+        pred_numeric = pd.to_numeric(predictions_df.get('synthesizability_prediction'), errors='coerce')
+        synthesizable = int((pred_numeric >= 0.5).sum())
+    elif predictions_df.get('ensemble_probability') is not None:
+        prob_numeric = pd.to_numeric(predictions_df.get('ensemble_probability'), errors='coerce')
+        synthesizable = int((prob_numeric >= 0.5).sum())
+    else:
+        print(f"WARNING: synthesizability columns missing from predictions_df. Available columns: {list(predictions_df.columns)}")
+        synthesizable = 0
+
+    # High-confidence count with fallbacks
+    ensemble_conf_col = predictions_df.get('ensemble_confidence')
+    if ensemble_conf_col is not None:
+        conf_numeric = pd.to_numeric(ensemble_conf_col, errors='coerce')
+        high_confidence = int((conf_numeric > 0.8).sum())
+    elif predictions_df.get('synthesizability_confidence') is not None:
+        conf_numeric = pd.to_numeric(predictions_df.get('synthesizability_confidence'), errors='coerce')
+        high_confidence = int((conf_numeric > 0.8).sum())
+    else:
+        high_confidence = 0
+
+    # In-distribution count
+    in_dist_col = predictions_df.get('in_distribution')
+    if in_dist_col is not None:
+        in_distribution = int((in_dist_col == 'in-dist').sum())
+    else:
+        in_distribution = 0
+
+    synth_pct = (synthesizable / n_materials * 100) if n_materials > 0 else 0.0
+    high_conf_pct = (high_confidence / n_materials * 100) if n_materials > 0 else 0.0
+    in_dist_pct = (in_distribution / n_materials * 100) if n_materials > 0 else 0.0
+    out_dist_count = n_materials - in_distribution
+    out_dist_pct = (out_dist_count / n_materials * 100) if n_materials > 0 else 0.0
 
     summary_text = f"""
-    <b>Total Materials Generated:</b> {n_materials}<br/>
-    <b>Predicted Synthesizable:</b> {synthesizable} ({synthesizable/n_materials*100:.1f}%)<br/>
-    <b>High Confidence Predictions:</b> {high_confidence} ({high_confidence/n_materials*100:.1f}%)<br/>
-    <b>In-Distribution Materials:</b> {in_distribution} ({in_distribution/n_materials*100:.1f}%)<br/>
-    <b>Out-of-Distribution Materials:</b> {n_materials - in_distribution} ({(n_materials - in_distribution)/n_materials*100:.1f}%)
+    <b>Total Materials in Export:</b> {n_materials}<br/>
+    <b>Predicted Synthesizable:</b> {synthesizable} ({synth_pct:.1f}%)<br/>
+    <b>High Confidence Predictions (confidence > 0.8):</b> {high_confidence} ({high_conf_pct:.1f}%)<br/>
+    <b>In-Distribution Materials:</b> {in_distribution} ({in_dist_pct:.1f}%)<br/>
+    <b>Out-of-Distribution Materials:</b> {out_dist_count} ({out_dist_pct:.1f}%)
     """
     content.append(Paragraph(summary_text, normal_style))
 
@@ -585,6 +658,34 @@ def generate_pdf_matplotlib(predictions_df: pd.DataFrame,
                            pdf_path: str) -> str:
     """Generate PDF report using matplotlib as fallback."""
     fig = plt.figure(figsize=(8.27, 11.69))  # A4 size in inches
+
+    n_materials = len(predictions_df)
+
+    ensemble_pred_col = predictions_df.get('ensemble_prediction')
+    if ensemble_pred_col is not None:
+        pred_numeric = pd.to_numeric(ensemble_pred_col, errors='coerce')
+        synthesizable = int((pred_numeric >= 0.5).sum())
+    elif predictions_df.get('synthesizability_prediction') is not None:
+        pred_numeric = pd.to_numeric(predictions_df.get('synthesizability_prediction'), errors='coerce')
+        synthesizable = int((pred_numeric >= 0.5).sum())
+    elif predictions_df.get('ensemble_probability') is not None:
+        prob_numeric = pd.to_numeric(predictions_df.get('ensemble_probability'), errors='coerce')
+        synthesizable = int((prob_numeric >= 0.5).sum())
+    else:
+        synthesizable = 0
+
+    ensemble_conf_col = predictions_df.get('ensemble_confidence')
+    if ensemble_conf_col is not None:
+        conf_numeric = pd.to_numeric(ensemble_conf_col, errors='coerce')
+        high_confidence = int((conf_numeric > 0.8).sum())
+    elif predictions_df.get('synthesizability_confidence') is not None:
+        conf_numeric = pd.to_numeric(predictions_df.get('synthesizability_confidence'), errors='coerce')
+        high_confidence = int((conf_numeric > 0.8).sum())
+    else:
+        high_confidence = 0
+
+    in_dist_col = predictions_df.get('in_distribution')
+    in_distribution = int((in_dist_col == 'in-dist').sum()) if in_dist_col is not None else 0
 
     # Create a text-based report
     report_text = f"""
@@ -637,10 +738,10 @@ def generate_pdf_matplotlib(predictions_df: pd.DataFrame,
     Step 5: Validate predictions and update knowledge base
 
     6. DATASET SUMMARY
-    - Total Materials: {len(predictions_df)}
-    - Predicted Synthesizable: {(predictions_df.get('ensemble_prediction', pd.Series([0]*len(predictions_df))) == 1).sum()}
-    - High Confidence: {(predictions_df.get('ensemble_confidence', pd.Series([0]*len(predictions_df))) > 0.8).sum()}
-    - In-Distribution: {(predictions_df.get('in_distribution', pd.Series(['unknown']*len(predictions_df))) == 'in-dist').sum()}
+    - Total Materials: {n_materials}
+    - Predicted Synthesizable: {synthesizable}
+    - High Confidence: {high_confidence}
+    - In-Distribution: {in_distribution}
     """
 
     # Add text to figure

@@ -156,6 +156,25 @@ export MP_API_KEY="your_api_key_here"
 python gradio_app.py
 ```
 
+### Option 3: Docker Build and Run
+
+```bash
+# Build the image
+docker build -t materials-discovery-app .
+
+# Run the web application
+docker run -p 8080:8080 materials-discovery-app
+```
+
+Open `http://localhost:8080` in your browser.
+
+**Build-time expectations:**
+
+- The first Docker build can take roughly 5 to 8 minutes on a typical Docker Desktop setup because Python dependencies are large and the image export step is expensive.
+- A recent local build completed in about 7.5 minutes end-to-end, with roughly 3.3 minutes spent installing Python packages and about 4.2 minutes exporting the image.
+- Rebuilds are usually much faster when `requirements.txt` has not changed because Docker can reuse the dependency layer cache.
+- If you change dependencies or rebuild with `--no-cache`, expect the longer first-build timing again.
+
 ## Files Overview
 
 ### Core Modules
@@ -171,7 +190,7 @@ python gradio_app.py
 - `test_mp_end_to_end.py` - Complete pipeline validation
 - `test_synthesizability.py` - Unit tests for prediction logic
 
-### Documentation
+### Reference Files
 
 - `Documents/MODEL_CARD.md` - Technical model documentation
 - `Documents/USER_GUIDE.md` - User instructions and examples

@@ -31,12 +31,9 @@ COPY hazards.yml .
 COPY materials_discovery_model.py .
 COPY materials_discovery_api.py .
 COPY synthesizability_predictor.py .
-COPY test_docker_solution.py .
-COPY test_field_mapping_fixes.py .
-COPY test_ml_prediction.py .
-COPY test_mp_end_to_end.py .
-COPY test_mp_integration.py .
-COPY test_synthesizability.py .
+COPY pytest.ini .
+COPY diagnostics ./diagnostics
+COPY tests ./tests
 
 # Expose port 8080 for Google Cloud Run
 EXPOSE 8080

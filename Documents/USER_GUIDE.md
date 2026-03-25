@@ -107,6 +107,24 @@ pip install -r requirements.txt
 python -c "from synthesizability_predictor import SynthesizabilityClassifier; print('Installation successful!')"
 ```
 
+### Optional: Docker Installation
+
+```bash
+# Build the image
+docker build -t materials-discovery-app .
+
+# Run the container
+docker run -p 8080:8080 materials-discovery-app
+```
+
+Open `http://localhost:8080` in your browser.
+
+**Expected build time:**
+
+- The first Docker build commonly takes 5 to 8 minutes on Docker Desktop because dependency installation and image export are both heavy steps.
+- A recent local build took about 7.5 minutes total.
+- Rebuilds are usually much faster if `requirements.txt` has not changed.
+
 ## Basic Usage
 
 ### Starting the Application

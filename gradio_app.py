@@ -250,15 +250,45 @@ def generate_materials(
         raise ValueError(f"Invalid composition bounds: min={composition_min} must be < max={composition_max}")
 
     for i, features in enumerate(generated_features):
-        # Randomly select elements
-        elem1, elem2 = random.sample(elements, 2)
-
-        # Enforce tight composition constraints (5-95% range)
-        comp1 = np.clip(features[0], composition_min, composition_max)
-        comp2 = 1.0 - comp1
-
-        # Assert composition validity (within floating point tolerance)
-        assert abs(comp1 + comp2 - 1.0) < COMPOSITION_CONSTRAINTS['sum_tolerance'], f"Composition constraint violated: {comp1} + {comp2} = {comp1 + comp2}"
+        # Randomly decide if this is binary (80%) or ternary (20%) alloy
+        is_ternary = np.random.random() < 0.2
+        
+        if is_ternary:
+            # Select 3 elements for ternary alloy
+            elem1, elem2, elem3 = random.sample(elements, 3)
+            
+            # Generate compositions that sum to 1.0
+            comp1 = np.clip(features[0], composition_min, composition_max)
+            comp2_raw = np.clip(features[1] if len(features) > 1 else np.random.random(), composition_min, composition_max)
+            remaining = 1.0 - comp1
+            comp2 = np.clip(comp2_raw * remaining, 0.01, remaining - 0.01) if remaining > 0.02 else remaining * 0.5
+            comp3 = 1.0 - comp1 - comp2
+            
+            # Ensure all compositions are positive and valid
+            if comp3 < 0.01:
+                comp3 = 0.01
+                comp2 = 1.0 - comp1 - comp3
+            
+            # Validate ternary composition
+            assert abs(comp1 + comp2 + comp3 - 1.0) < COMPOSITION_CONSTRAINTS['sum_tolerance'], \
+                f"Ternary composition constraint violated: {comp1} + {comp2} + {comp3} = {comp1 + comp2 + comp3}"
+            
+            formula = f'{elem1}{comp1:.2f}{elem2}{comp2:.2f}{elem3}{comp3:.2f}'
+        else:
+            # Binary alloy (traditional behavior)
+            elem1, elem2 = random.sample(elements, 2)
+            elem3 = None
+            
+            # Enforce tight composition constraints (5-95% range)
+            comp1 = np.clip(features[0], composition_min, composition_max)
+            comp2 = 1.0 - comp1
+            comp3 = 0.0
+            
+            # Assert composition validity (within floating point tolerance)
+            assert abs(comp1 + comp2 - 1.0) < COMPOSITION_CONSTRAINTS['sum_tolerance'], \
+                f"Binary composition constraint violated: {comp1} + {comp2} = {comp1 + comp2}"
+            
+            formula = f'{elem1}{comp1:.3f}{elem2}{comp2:.3f}'
 
         # Generate synthetic properties for required ML fields
         formation_energy = np.random.normal(-1.5, 1.0)
@@ -276,9 +306,11 @@ def generate_materials(
             'id': f'generated_{i+1}',
             'element_1': elem1,
             'element_2': elem2,
+            'element_3': elem3,
             'composition_1': comp1,
             'composition_2': comp2,
-            'formula': f'{elem1}{comp1:.3f}{elem2}{comp2:.3f}',
+            'composition_3': comp3,
+            'formula': formula,
             'melting_point': abs(features[2]),
             'density': abs(features[3]),
             'electronegativity': max(0, features[4]),
@@ -1212,14 +1244,22 @@ def create_gradio_interface():
 
             # Create summary statistics
             total_materials = len(results_df)
-            synthesizable_count = results_df['ensemble_prediction'].sum()
+            synthesizable_count = int(results_df['ensemble_prediction'].sum())
             high_confidence = results_df[results_df['ensemble_confidence'] > 0.8]
+            high_conf_synth = int(
+                high_confidence[high_confidence['ensemble_prediction'] == 1].shape[0]
+            )
+            high_conf_not_synth = int(
+                high_confidence[high_confidence['ensemble_prediction'] == 0].shape[0]
+            )
 
             summary_text = f"""
             **Generation Summary:**
             - Total materials generated: {total_materials}
             - Predicted synthesizable: {synthesizable_count} ({synthesizable_count/total_materials*100:.1f}%)
-            - High confidence predictions: {len(high_confidence)} ({len(high_confidence)/total_materials*100:.1f}%)
+                        - High confidence predictions (either class): {len(high_confidence)} ({len(high_confidence)/total_materials*100:.1f}%)
+                            - High confidence synthesizable: {high_conf_synth}
+                            - High confidence not synthesizable: {high_conf_not_synth}
             - Safety-passing candidates (live thresholds): {recommended_count}
 
             **Priority Analysis:**
@@ -1351,11 +1391,11 @@ def create_gradio_interface():
             # Prepare CSV export
             csv_path = prepare_csv_export(results_df)
 
-            return summary_text, fig, results_table, priority_table, workflow_table, cba_display, methods_ref_df, fig2, csv_path
+            return summary_text, fig, results_table, priority_table, workflow_table, cba_display, methods_ref_df, fig2, csv_path, results_df
 
         except Exception as e:
             error_msg = f"Error during generation: {str(e)}"
-            return error_msg, None, pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), None, None
+            return error_msg, None, pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), None, None, pd.DataFrame()
 
     # Create Gradio interface
     with gr.Blocks(title="Materials Discovery Workshop", css="""
@@ -1478,6 +1518,98 @@ def create_gradio_interface():
             type="password",
             info="Required for accessing real materials data. Leave empty to use synthetic data only."
         )
+
+        with gr.Row():
+            with gr.Column(scale=2):
+                safety_acknowledgment = gr.Checkbox(
+                    value=False,
+                    label="✅ I have read and understood the safety warnings and model limitations",
+                    info="Required before generating materials"
+                )
+            with gr.Column(scale=3):
+                gr.Markdown("""
+                **Safety acknowledgment is required at startup.**
+                Full safety guidance remains in the **🛡️ Safety & Limitations** tab below.
+                """)
+                gr.HTML("""
+                                <style>
+                                    .safety-modal-overlay {
+                                        display: none;
+                                        position: fixed;
+                                        z-index: 10000;
+                                        left: 0;
+                                        top: 0;
+                                        width: 100%;
+                                        height: 100%;
+                                        background-color: rgba(0, 0, 0, 0.55);
+                                    }
+                                    .safety-modal-content {
+                                        background: #1f2937;
+                                        color: #f3f4f6;
+                                        margin: 8% auto;
+                                        padding: 18px 20px;
+                                        border-radius: 10px;
+                                        width: min(760px, 92%);
+                                        box-shadow: 0 14px 36px rgba(0, 0, 0, 0.4);
+                                        border: 1px solid rgba(255, 255, 255, 0.18);
+                                    }
+                                    .safety-modal-content h3 {
+                                        margin: 0 0 10px 0;
+                                        font-size: 1.05rem;
+                                    }
+                                    .safety-modal-content ul {
+                                        margin: 0 0 12px 18px;
+                                        padding: 0;
+                                    }
+                                    .safety-modal-content li {
+                                        margin: 6px 0;
+                                    }
+                                    .safety-modal-actions {
+                                        display: flex;
+                                        justify-content: flex-end;
+                                    }
+                                    .safety-modal-close {
+                                        background: #2563eb;
+                                        color: #fff;
+                                        border: none;
+                                        border-radius: 7px;
+                                        padding: 8px 14px;
+                                        cursor: pointer;
+                                        font-weight: 600;
+                                    }
+                                    .safety-open-btn {
+                                        background: #0f766e;
+                                        color: #fff;
+                                        border: none;
+                                        border-radius: 8px;
+                                        padding: 8px 12px;
+                                        cursor: pointer;
+                                        font-weight: 600;
+                                        margin-top: 4px;
+                                    }
+                                </style>
+
+                                <button class="safety-open-btn" onclick="document.getElementById('safety-quick-modal').style.display='block'">
+                                    📋 Quick Safety Summary
+                                </button>
+
+                                <div id="safety-quick-modal" class="safety-modal-overlay" onclick="if(event.target.id==='safety-quick-modal'){this.style.display='none'}">
+                                    <div class="safety-modal-content">
+                                        <h3>Quick Safety Summary</h3>
+                                        <ul>
+                                            <li>Predictions are statistical guides, not synthesis guarantees.</li>
+                                            <li>Prioritize candidates with high probability, high stability, and in-distribution status.</li>
+                                            <li>Thermodynamic stability does not guarantee kinetic feasibility.</li>
+                                            <li>Validate with literature review and small-batch experiments before scale-up.</li>
+                                            <li>Use proper PPE, approved waste handling, and equipment compatibility checks.</li>
+                                        </ul>
+                                        <p style="margin: 0 0 14px 0;"><strong>See the 🛡️ Safety & Limitations tab for full guidance.</strong></p>
+                                        <div class="safety-modal-actions">
+                                            <button class="safety-modal-close" onclick="document.getElementById('safety-quick-modal').style.display='none'">Close</button>
+                                        </div>
+                                    </div>
+                                </div>
+                """)
 
         # SAFETY & LIMITATIONS PANEL - HIGH PRIORITY WARNING
         gr.Markdown(f"""
@@ -1736,18 +1868,12 @@ def create_gradio_interface():
                     ### **Model Card:** See Model Diagnostics tab for complete technical details
                     """)
 
-                # Safety Acknowledgment
+                # Safety acknowledgment is placed near onboarding/API input at top of app
                 gr.Markdown("---")
                 gr.Markdown("### 📝 Safety Acknowledgment")
-                gr.Markdown("*By proceeding with material generation, you acknowledge that you have read and understood these safety and limitations warnings.*")
-
-                safety_acknowledgment = gr.Checkbox(
-                    value=False,
-                    label="✅ I have read and understood the safety warnings and model limitations",
-                    info="Required to proceed with material generation"
-                )
-
                 gr.Markdown("""
+                The required acknowledgment checkbox is located in the **Onboarding** section at the top of the app.
+
                 **Remember:** This tool is designed to accelerate materials discovery by prioritizing candidates,
                 not to eliminate the need for careful experimental validation and safety assessment.
                 """)
@@ -1775,6 +1901,7 @@ def create_gradio_interface():
                     label="Generated Materials",
                     wrap=True
                 )
+                full_results_state = gr.State(pd.DataFrame())
 
             with gr.TabItem("🎯 Priority Ranking"):
                 gr.Markdown("### Synthesis Priority Ranking (Top 20 Materials)")
@@ -2211,6 +2338,7 @@ def create_gradio_interface():
                 'formula', 'at%', 'wt%', 'feedstock_g_per_100g',
                 'thermodynamic_stability_score', 'thermodynamic_stability_category',
                 'ensemble_probability', 'ensemble_confidence', 'ensemble_prediction',
+                'in_distribution', 'nn_distance', 'calibration_status', 'synthesis_priority_rank',
                 'energy_above_hull', 'formation_energy_per_atom', 'density',
                 'melting_point', 'band_gap', 'electronegativity', 'atomic_radius',
                 'nsites', 'element_1', 'element_2', 'element_3',
@@ -2223,7 +2351,12 @@ def create_gradio_interface():
 
             # Create temporary CSV file
             import tempfile
-            temp_file = tempfile.NamedTemporaryFile(mode='w', suffix='.csv', delete=False)
+            temp_file = tempfile.NamedTemporaryFile(
+                mode='w',
+                prefix='all_materials_analysis_',
+                suffix='.csv',
+                delete=False,
+            )
             csv_export_df.to_csv(temp_file.name, index=False)
             temp_file.close()
 
@@ -2278,16 +2411,33 @@ def create_gradio_interface():
                 in_dist_bonus_slider,
                 out_dist_penalty_slider,
             ],
-            outputs=[summary_output, plot_output, materials_table, priority_table, workflow_table, cba_table, methods_table, reliability_plot, csv_download]
+            outputs=[summary_output, plot_output, materials_table, priority_table, workflow_table, cba_table, methods_table, reliability_plot, csv_download, full_results_state]
         )
 
         # Function for lab export with safety gating
-        def prepare_lab_export_from_table(materials_table_data, safe_mode_enabled, allow_human_override):
-            """Prepare comprehensive lab export from table data with safety gating."""
-            if hasattr(materials_table_data, 'data'):
-                df = materials_table_data.data
+        def prepare_lab_export_from_table(materials_table_data, full_results_data, safe_mode_enabled, allow_human_override):
+            """Prepare comprehensive lab export from full analysis data with safety gating."""
+            def _to_dataframe(value):
+                if hasattr(value, 'data'):
+                    value = value.data
+                if isinstance(value, pd.DataFrame):
+                    return value
+                if value is None:
+                    return pd.DataFrame()
+                try:
+                    return pd.DataFrame(value)
+                except Exception:
+                    return pd.DataFrame()
+
+            full_df = _to_dataframe(full_results_data)
+            table_df = _to_dataframe(materials_table_data)
+
+            if hasattr(full_df, 'empty') and not full_df.empty:
+                df = full_df
             else:
-                df = materials_table_data
+                df = table_df
+
+            print(f"Lab export DataFrame selected: rows={len(df)}, cols={list(df.columns)}")
 
             if hasattr(df, 'empty') and df.empty:
                 return None, None, "No materials data available for export"
@@ -2334,7 +2484,7 @@ def create_gradio_interface():
         # Connect lab export button
         export_button.click(
             fn=prepare_lab_export_from_table,
-            inputs=[materials_table, safe_mode_toggle, human_override_checkbox],
+            inputs=[materials_table, full_results_state, safe_mode_toggle, human_override_checkbox],
             outputs=[lab_csv_download, lab_pdf_download, safety_summary_display]
         )
 
