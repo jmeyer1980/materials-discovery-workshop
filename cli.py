@@ -83,6 +83,30 @@ def _load_predictions_csv(csv_path: str):
     return df
 
 
+def _normalize_for_safety_checks(df):
+    """Normalize known lab-export column names to internal safety-check schema."""
+    normalized = df.copy()
+
+    column_aliases = {
+        'SynthProb': 'ensemble_probability',
+        'Stability': 'thermodynamic_stability_category',
+        'InDist': 'in_distribution',
+        'Formula': 'formula',
+        'NNDistance': 'nn_distance',
+    }
+
+    for source, target in column_aliases.items():
+        if source in normalized.columns and target not in normalized.columns:
+            normalized[target] = normalized[source]
+
+    if 'ensemble_probability' in normalized.columns:
+        normalized['ensemble_probability'] = normalized['ensemble_probability'].astype(str).str.replace('%', '', regex=False)
+    if 'in_distribution' in normalized.columns:
+        normalized['in_distribution'] = normalized['in_distribution'].astype(str).str.strip().str.lower()
+
+    return normalized
+
+
 def _print_section(title: str, width: int = 60) -> None:
     print()
     print("=" * width)
@@ -214,6 +238,7 @@ def cmd_check_safety(args: argparse.Namespace) -> None:
     _print_section("Safety Check")
 
     df = _load_predictions_csv(args.input)
+    df = _normalize_for_safety_checks(df)
     out_dir = _resolve_output_dir(args.output_dir) if args.output_dir else None
     safe_mode = not args.no_safe_mode
     override = args.allow_override
@@ -238,7 +263,7 @@ def cmd_check_safety(args: argparse.Namespace) -> None:
 
     total = len(df)
     print()
-    print(f"  Results")
+    print("  Results")
     print(f"    Safe        : {len(safe_df):>5} / {total}")
     print(f"    Unsafe      : {len(unsafe_df):>5} / {total}")
     print(f"    Human review: {len(review_df):>5} / {total}")
@@ -425,7 +450,7 @@ def cmd_status(args: argparse.Namespace) -> None:
         print("    [WARN] hazards.yml not found — default config will be used at runtime.")
 
     # 3. Field mapping
-    print(f"\n  Field mapping (centralized_field_mapping.py):")
+    print("\n  Field mapping (centralized_field_mapping.py):")
     try:
         from centralized_field_mapping import FIELD_ALIASES, CANONICAL_FIELDS
         print(f"    Canonical fields : {len(CANONICAL_FIELDS)}")

@@ -2299,6 +2299,22 @@ def create_gradio_interface():
                         - Waste disposal plan approved
                         """)
 
+                gr.Markdown("""
+                ### Understanding Export Status Labels
+
+                **SAFE MODE ON (Recommended - Default):**
+                - ✅ **"safe"** → Material meets all strict safety criteria; approved for direct synthesis
+                - ⚠️ **"human_review_required"** → Material fails safety gate; requires PI review before synthesis (usually due to high energy, out-of-distribution, or unknown hazards)
+                - ❌ **NOT EXPORTED** → Material blocked from export due to hazardous elements or other critical safety concerns
+                
+                **SAFE MODE OFF (Exploratory - Requires Caution):**
+                - ⚠️ **"review_required"** → Material is out-of-distribution (likely outside training set); **DO NOT SYNTHESIZE** without expert review. These materials are exploratory and may have unexpected behavior
+                - ✅ **"safe"** → Material meets minimum safety thresholds in exploratory mode, but verify before use
+                - 📋 **"human_override_approved"** → Material approved via documented PI override (includes researcher decision rationale)
+
+                **Key Distinction:** In exploratory mode, `review_required` means the model is uncertain about the material's behavior (not enough training data). This is NOT the same as "safe to explore"—it means "expert review required."
+                """)
+
                 export_button = gr.Button("🚀 Export for Synthesis", variant="primary", size="lg")
 
                 # Safety summary display

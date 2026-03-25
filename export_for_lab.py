@@ -94,7 +94,7 @@ def check_material_safety(material_row: pd.Series, hazard_config: Dict = None,
     if material_row.get('element_3'):
         elements.append(material_row['element_3'])
 
-    blacklist_elements = hazard_config.get('blacklist_elements', [])
+    blacklist_elements = hazard_config.get('blacklist_elements', hazard_config.get('blacklisted_elements', []))
     hazardous_elements = [elem for elem in elements if elem in blacklist_elements]
 
     if hazardous_elements:
@@ -104,7 +104,9 @@ def check_material_safety(material_row: pd.Series, hazard_config: Dict = None,
             warnings.append(f"Human override approved for hazardous elements: {', '.join(hazardous_elements)}")
 
     # Check ensemble probability
-    ensemble_prob = material_row.get('ensemble_probability', 0)
+    ensemble_prob = pd.to_numeric(material_row.get('ensemble_probability', 0), errors='coerce')
+    if pd.isna(ensemble_prob):
+        ensemble_prob = 0.0
     prob_threshold = 0.8 if safe_mode else 0.5  # Conservative threshold in safe mode
 
     if ensemble_prob < prob_threshold:
@@ -123,9 +125,11 @@ def check_material_safety(material_row: pd.Series, hazard_config: Dict = None,
             reasons.append(f"Unstable material: {stability_category}")
 
     # Check in-distribution status
-    in_dist = material_row.get('in_distribution', 'unknown')
+    in_dist = str(material_row.get('in_distribution', 'unknown')).strip().lower()
     if safe_mode and in_dist != 'in-dist' and not human_override:
         reasons.append(f"Out-of-distribution material: {in_dist}")
+    elif not safe_mode and in_dist != 'in-dist' and not human_override:
+        reasons.append(f"Out-of-distribution material requires human review: {in_dist}")
     elif in_dist != 'in-dist':
         warnings.append("Out-of-distribution material: predictions may be less reliable")
 
@@ -332,6 +336,10 @@ def prepare_lab_ready_csv(predictions_df: pd.DataFrame,
     # Priority ranking
     csv_df['Priority'] = csv_df.get('synthesis_priority_rank', 'N/A')
 
+    # Export decision metadata (explicit contract for safety/review status)
+    csv_df['ExportStatus'] = csv_df.get('export_status', 'safe')
+    csv_df['ExportDecisionReason'] = csv_df.get('export_decision_reason', csv_df.get('safety_reason', 'Passed safety checks'))
+
     # In-distribution status and nearest neighbor distance
     csv_df['InDist'] = csv_df.get('in_distribution', 'N/A')
 
@@ -379,7 +387,8 @@ def prepare_lab_ready_csv(predictions_df: pd.DataFrame,
     final_columns = [
         'ID', 'Formula', 'Comp (at%)', 'Comp (wt%)', 'Feedstock(g/100g)',
         'Stability', 'E_hull', 'SynthProb', 'MLConf', 'Method', 'Temp°C', 'Atm',
-        'SuccessProb', 'EstCost', 'EstTime(h)', 'Priority', 'InDist', 'NNDistance', 'Notes'
+        'SuccessProb', 'EstCost', 'EstTime(h)', 'Priority', 'InDist', 'NNDistance',
+        'ExportStatus', 'ExportDecisionReason', 'Notes'
     ]
 
     # Ensure all columns exist (fill missing with defaults)
@@ -796,16 +805,40 @@ def export_for_lab(predictions_df: pd.DataFrame,
 
     # Determine which materials to export
     if allow_human_override and len(human_review_df) > 0:
-        # Include human-reviewed materials if override is allowed
+        # Include human-reviewed materials if override is explicitly allowed
         export_df = pd.concat([safe_df, human_review_df], ignore_index=True)
         export_df['export_status'] = export_df.apply(
             lambda row: 'human_override_approved' if row.get('requires_human_override', False) else 'safe',
+            axis=1
+        )
+        export_df['export_decision_reason'] = export_df.apply(
+            lambda row: (
+                row.get('safety_warnings')
+                if row.get('requires_human_override', False)
+                else row.get('safety_reason', 'Passed safety checks')
+            ),
+            axis=1
+        )
+    elif not safe_mode and len(human_review_df) > 0:
+        # Exploratory mode: include review-required materials, but clearly mark as not safe.
+        export_df = pd.concat([safe_df, human_review_df], ignore_index=True)
+        export_df['export_status'] = export_df.apply(
+            lambda row: 'review_required' if row.get('requires_human_override', False) else 'safe',
+            axis=1
+        )
+        export_df['export_decision_reason'] = export_df.apply(
+            lambda row: (
+                row.get('safety_reason')
+                if row.get('requires_human_override', False)
+                else row.get('safety_reason', 'Passed safety checks')
+            ),
             axis=1
         )
     else:
         # Only export safe materials
         export_df = safe_df.copy()
         export_df['export_status'] = 'safe'
+        export_df['export_decision_reason'] = export_df.get('safety_reason', 'Passed safety checks')
 
     # Safety summary
     safety_summary = {
@@ -813,6 +846,7 @@ def export_for_lab(predictions_df: pd.DataFrame,
         'safe_materials': len(safe_df),
         'unsafe_materials': len(unsafe_df),
         'human_review_materials': len(human_review_df),
+        'review_required_exported': int((export_df.get('export_status', pd.Series(dtype=str)) == 'review_required').sum()) if len(export_df) else 0,
         'exported_materials': len(export_df),
         'safe_mode_enabled': safe_mode,
         'human_override_allowed': allow_human_override,
