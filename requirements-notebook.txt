@@ -1,6 +1,7 @@
 # Notebook-only dependencies — no Gradio web UI packages.
 # Used by Dockerfile.notebook (docker compose up notebook).
 astropy>=7.2.0
+cuda-python>=13.2.0
 hyperspy>=2.4.0
 huggingface-hub>=1.3.3
 pandas>=2.3.3
