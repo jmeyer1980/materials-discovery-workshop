@@ -5,6 +5,7 @@ message: >-
 type: software
 authors:
   - name: "jmeyer1980"
+  - ORCID: 0009-0000-8815-0844
 repository-code: "https://github.com/jmeyer1980/materials-discovery-workshop"
 url: "https://github.com/jmeyer1980/materials-discovery-workshop"
 abstract: >-
